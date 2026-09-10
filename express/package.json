@@ -1,0 +1,14 @@
+{
+  "name": "enlace-examples-express",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "@get-enlace/express": "dev",
+    "express": "^4.19.2",
+    "swagger-jsdoc": "^6.3.0"
+  }
+}

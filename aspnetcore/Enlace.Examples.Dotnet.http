@@ -1,0 +1,67 @@
+@Enlace.Examples.Dotnet_HostAddress = http://localhost:5001
+
+### Reference demo chain — see ../CONTRACT.md#reference-demo-chain
+
+# 1. Create a customer
+POST {{Enlace.Examples.Dotnet_HostAddress}}/customers
+Content-Type: application/json
+
+{
+  "name": "Ada Lovelace",
+  "email": "ada@example.com"
+}
+
+###
+
+# 2. Create products
+POST {{Enlace.Examples.Dotnet_HostAddress}}/products
+Content-Type: application/json
+
+{
+  "name": "Mechanical Keyboard",
+  "price": 129.99,
+  "stock": 42
+}
+
+###
+
+POST {{Enlace.Examples.Dotnet_HostAddress}}/products
+Content-Type: application/json
+
+{
+  "name": "Mouse",
+  "price": 39.99,
+  "stock": 100
+}
+
+###
+
+# 3. Create an order — set customerId/productId below to the ids returned above
+POST {{Enlace.Examples.Dotnet_HostAddress}}/orders
+Content-Type: application/json
+
+{
+  "customerId": 1,
+  "items": [
+    { "productId": 1, "quantity": 2 },
+    { "productId": 2, "quantity": 1 }
+  ]
+}
+
+###
+
+# 4. Advance the order's status — set the id below to the order id returned above
+PUT {{Enlace.Examples.Dotnet_HostAddress}}/orders/1/status
+Content-Type: application/json
+
+{
+  "status": "paid"
+}
+
+###
+
+# 5. Verify
+GET {{Enlace.Examples.Dotnet_HostAddress}}/orders/1
+Accept: application/json
+
+###

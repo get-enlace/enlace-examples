@@ -1,0 +1,10 @@
+fastapi>=0.100
+uvicorn[standard]>=0.30
+pydantic>=2.0
+
+# enlace-fastapi isn't published anywhere yet (no PyPI release, no GitHub
+# Packages equivalent) — this points at the sibling enlace-python checkout
+# instead. Swap for a real `enlace-fastapi==<version>` pin once it publishes,
+# the same way express/nest here will eventually move off their `dev`
+# dist-tag pins onto real released versions.
+-e ../../enlace-python/packages/enlace-fastapi

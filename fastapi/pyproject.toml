@@ -1,0 +1,18 @@
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.ruff.lint.flake8-bugbear]
+# `Depends(...)`/`Query(...)` in a function default is FastAPI's own
+# documented dependency-injection idiom (not a mutable-default footgun,
+# what B008 exists to catch) — evaluated once per request by FastAPI's own
+# machinery, not shared/mutated across calls like a real mutable default
+# would be. See https://fastapi.tiangolo.com/tutorial/dependencies/.
+extend-immutable-calls = ["fastapi.Depends", "fastapi.Query"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
