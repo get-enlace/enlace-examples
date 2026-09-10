@@ -1,109 +1,230 @@
-"""Orders resource — see ../../../CONTRACT.md. References a Customer and one
-or more Products; `unitPrice`/`total` are server-computed from each
-product's *current* price at creation time — deliberately response-only
-fields the client didn't send, to give the canvas something worth mapping
-from a response into a later step.
+"""Order resource endpoints.
+
+- GET /orders (customer or admin) — customer sees own only, admin sees all
+- GET /orders/{id} (customer or admin) — customer can only see own, admin sees any
+- POST /orders/{id}/cancel (customer) — cancel an order (only from pending_payment)
+- POST /orders/{id}/fulfill (admin) — fulfill order, create shipment (only from paid)
 """
 
-from datetime import UTC, datetime
+from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, status
 
-from ..errors import not_found
-from ..schemas import ErrorResponse, Order, OrderItem, OrderItemRequest, OrderRequest, OrderStatusRequest
-from ..store import InMemoryStore, get_store
+from ..db import database
+from ..dependencies import get_current_admin_id, get_current_customer_id, get_customer_or_admin
+from ..errors import conflict, not_found
+from ..schemas import ErrorResponse, Order, OrderItem, Shipment
 
-router = APIRouter(prefix="/orders", tags=["orders"])
-
-
-def _resolve_items(items: list[OrderItemRequest], store: InMemoryStore) -> list[OrderItem]:
-    """Looks up each requested product and freezes its *current* price onto
-    the order line, so a later price change never retroactively changes
-    what an existing order billed.
-    """
-    resolved: list[OrderItem] = []
-    for item in items:
-        product = store.products.get(item.product_id)
-        if product is None:
-            raise HTTPException(400, f"productId {item.product_id} does not exist.")
-        resolved.append(
-            OrderItem(product_id=item.product_id, quantity=item.quantity, unit_price=product.price)
-        )
-    return resolved
-
-
-def _now_iso() -> str:
-    return datetime.now(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
-
-
-@router.get("", operation_id="listOrders", summary="List orders")
-def list_orders(store: InMemoryStore = Depends(get_store)) -> list[Order]:
-    return list(store.orders.values())
+router = APIRouter(tags=["orders"])
 
 
 @router.get(
-    "/{id}",
-    operation_id="getOrder",
-    summary="Fetch an order by id",
-    responses={404: {"model": ErrorResponse}},
+    "/orders",
+    response_model=list[Order],
+    responses={
+        401: {"model": ErrorResponse},
+    },
 )
-def get_order(id: int, store: InMemoryStore = Depends(get_store)) -> Order:
-    order = store.orders.get(id)
-    if order is None:
+async def list_orders(actor: dict = Depends(get_customer_or_admin)) -> list[Order]:
+    """List orders.
+
+    Customer credential: sees only their own orders.
+    Admin credential: sees all orders.
+    """
+    if actor["type"] == "customer":
+        query = """SELECT id, customer_id, cart_id, status, total, created_at
+                   FROM orders
+                   WHERE customer_id = :customer_id
+                   ORDER BY id"""
+        orders_rows = await database.fetch_all(query, values={"customer_id": actor["id"]})
+    else:
+        query = """SELECT id, customer_id, cart_id, status, total, created_at
+                   FROM orders
+                   ORDER BY id"""
+        orders_rows = await database.fetch_all(query)
+
+    orders = []
+    for order_row in orders_rows:
+        items_rows = await database.fetch_all(
+            """SELECT product_id, quantity, unit_price FROM order_items
+               WHERE order_id = :order_id
+               ORDER BY product_id""",
+            values={"order_id": order_row["id"]},
+        )
+        items = [
+            OrderItem(
+                product_id=r["product_id"],
+                quantity=r["quantity"],
+                unit_price=r["unit_price"],
+            )
+            for r in items_rows
+        ]
+        orders.append(
+            Order(
+                id=order_row["id"],
+                customer_id=order_row["customer_id"],
+                cart_id=order_row["cart_id"],
+                status=order_row["status"],
+                items=items,
+                total=order_row["total"],
+                created_at=order_row["created_at"],
+            )
+        )
+
+    return orders
+
+
+@router.get(
+    "/orders/{id}",
+    response_model=Order,
+    responses={
+        401: {"model": ErrorResponse},
+        404: {"model": ErrorResponse},
+    },
+)
+async def get_order(id: int, actor: dict = Depends(get_customer_or_admin)) -> Order:
+    """Get an order.
+
+    Customer credential: can only see their own (404 if not theirs).
+    Admin credential: can see any.
+    """
+    order_row = await database.fetch_one(
+        """SELECT id, customer_id, cart_id, status, total, created_at
+           FROM orders
+           WHERE id = :id""",
+        values={"id": id},
+    )
+
+    if not order_row:
         raise not_found("Order", id)
-    return order
+
+    # Authorization check
+    if actor["type"] == "customer" and order_row["customer_id"] != actor["id"]:
+        raise not_found("Order", id)
+
+    items_rows = await database.fetch_all(
+        """SELECT product_id, quantity, unit_price FROM order_items
+           WHERE order_id = :order_id
+           ORDER BY product_id""",
+        values={"order_id": id},
+    )
+
+    items = [
+        OrderItem(
+            product_id=r["product_id"],
+            quantity=r["quantity"],
+            unit_price=r["unit_price"],
+        )
+        for r in items_rows
+    ]
+
+    return Order(
+        id=order_row["id"],
+        customer_id=order_row["customer_id"],
+        cart_id=order_row["cart_id"],
+        status=order_row["status"],
+        items=items,
+        total=order_row["total"],
+        created_at=order_row["created_at"],
+    )
 
 
 @router.post(
-    "",
-    operation_id="createOrder",
-    summary="Create an order (references an existing customer + products)",
-    status_code=201,
-    responses={400: {"model": ErrorResponse}},
+    "/orders/{id}/cancel",
+    response_model=Order,
+    responses={
+        401: {"model": ErrorResponse},
+        404: {"model": ErrorResponse},
+        409: {"model": ErrorResponse},
+    },
 )
-def create_order(body: OrderRequest, store: InMemoryStore = Depends(get_store)) -> Order:
-    if body.customer_id not in store.customers:
-        raise HTTPException(400, f"customerId {body.customer_id} does not exist.")
-
-    items = _resolve_items(body.items, store)
-    total = sum(item.unit_price * item.quantity for item in items)
-
-    order = Order(
-        id=store.next_id("order"),
-        customer_id=body.customer_id,
-        status="pending",
-        items=items,
-        total=total,
-        created_at=_now_iso(),
-    )
-    store.orders[order.id] = order
-    return order
-
-
-@router.put(
-    "/{id}/status",
-    operation_id="updateOrderStatus",
-    summary="Update an order's status",
-    responses={404: {"model": ErrorResponse}},
-)
-def update_order_status(
-    id: int, body: OrderStatusRequest, store: InMemoryStore = Depends(get_store)
+async def cancel_order(
+    id: int,
+    customer_id: int = Depends(get_current_customer_id),
 ) -> Order:
-    order = store.orders.get(id)
-    if order is None:
+    """Cancel an order (customer only).
+
+    Only works if order status is 'pending_payment'. Cascades order to 'cancelled'.
+    """
+    order_row = await database.fetch_one(
+        "SELECT id, status, customer_id FROM orders WHERE id = :id",
+        values={"id": id},
+    )
+
+    if not order_row or order_row["customer_id"] != customer_id:
         raise not_found("Order", id)
-    updated = order.model_copy(update={"status": body.status})
-    store.orders[id] = updated
-    return updated
+
+    if order_row["status"] != "pending_payment":
+        raise conflict(f"Cannot cancel an order in '{order_row['status']}' status (must be 'pending_payment')")
+
+    # Cascade order to 'cancelled'
+    await database.execute(
+        "UPDATE orders SET status = 'cancelled' WHERE id = :id",
+        values={"id": id},
+    )
+
+    # Return updated order
+    return await get_order(id, {"type": "customer", "id": customer_id})
 
 
-@router.delete(
-    "/{id}",
-    operation_id="deleteOrder",
-    summary="Delete an order",
-    status_code=204,
-    responses={404: {"model": ErrorResponse}},
+@router.post(
+    "/orders/{id}/fulfill",
+    response_model=Shipment,
+    status_code=status.HTTP_201_CREATED,
+    responses={
+        401: {"model": ErrorResponse},
+        403: {"model": ErrorResponse},
+        404: {"model": ErrorResponse},
+        409: {"model": ErrorResponse},
+    },
 )
-def delete_order(id: int, store: InMemoryStore = Depends(get_store)) -> None:
-    if store.orders.pop(id, None) is None:
+async def fulfill_order(
+    id: int,
+    _admin: bool = Depends(get_current_admin_id),
+) -> Shipment:
+    """Fulfill an order and create a shipment (admin only).
+
+    Only works if order status is 'paid'.
+    Creates a shipment with a generated tracking number and cascades order to 'shipped'.
+    """
+    order = await database.fetch_one(
+        "SELECT id, status FROM orders WHERE id = :id",
+        values={"id": id},
+    )
+
+    if not order:
         raise not_found("Order", id)
+
+    if order["status"] != "paid":
+        raise conflict(f"Cannot fulfill an order in '{order['status']}' status (must be 'paid')")
+
+    # Generate tracking number (simple format: TRK-<timestamp-based>)
+    import hashlib
+    import time
+
+    tracking = f"TRK-{hashlib.md5(f'{id}-{int(time.time())}'.encode()).hexdigest()[:8].upper()}"
+
+    # Create shipment
+    shipment_id = await database.execute(
+        """INSERT INTO shipments (order_id, tracking_number, carrier, status)
+           VALUES (:order_id, :tracking_number, 'DemoShip Express', 'in_transit')""",
+        values={
+            "order_id": id,
+            "tracking_number": tracking,
+        },
+    )
+
+    # Cascade order to 'shipped'
+    await database.execute(
+        "UPDATE orders SET status = 'shipped' WHERE id = :id",
+        values={"id": id},
+    )
+
+    return Shipment(
+        id=shipment_id,
+        order_id=id,
+        tracking_number=tracking,
+        carrier="DemoShip Express",
+        status="in_transit",
+        created_at=datetime.utcnow(),
+    )

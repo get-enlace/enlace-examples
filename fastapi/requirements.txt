@@ -2,9 +2,16 @@ fastapi>=0.100
 uvicorn[standard]>=0.30
 pydantic>=2.0
 
-# enlace-fastapi isn't published anywhere yet (no PyPI release, no GitHub
-# Packages equivalent) — this points at the sibling enlace-python checkout
-# instead. Swap for a real `enlace-fastapi==<version>` pin once it publishes,
-# the same way express/nest here will eventually move off their `dev`
-# dist-tag pins onto real released versions.
+# Database
+sqlalchemy>=2.0
+databases[postgresql,sqlite]>=0.8
+asyncpg>=0.29  # postgres driver
+aiosqlite>=0.19  # sqlite async driver
+
+# Authentication
+argon2-cffi>=23.0
+python-multipart>=0.0.6
+
+# enlace-fastapi integration
+# (not published yet — points at sibling enlace-python checkout)
 -e ../../enlace-python/packages/enlace-fastapi

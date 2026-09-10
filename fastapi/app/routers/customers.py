@@ -1,62 +1,100 @@
-"""Customers resource — see ../../../CONTRACT.md. Independent CRUD; Orders
-references this resource by id.
+"""Customer resource endpoints.
+
+- GET /customers (admin only) — all customers
+- GET /customers/{id} (admin only) — one customer
+- GET /customers/me (customer) — current customer's own profile
+- PUT /customers/me (customer) — update current customer's name/email
 """
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, status
 
+from ..db import database
+from ..dependencies import get_current_admin_id, get_current_customer_id
 from ..errors import not_found
-from ..schemas import Customer, CustomerRequest, ErrorResponse
-from ..store import InMemoryStore, get_store
+from ..schemas import Customer, CustomerMeUpdate, ErrorResponse
 
-router = APIRouter(prefix="/customers", tags=["customers"])
-
-
-@router.get("", operation_id="listCustomers", summary="List customers")
-def list_customers(store: InMemoryStore = Depends(get_store)) -> list[Customer]:
-    return list(store.customers.values())
+router = APIRouter(tags=["customers"])
 
 
 @router.get(
-    "/{id}",
-    operation_id="getCustomer",
-    summary="Fetch a customer by id",
-    responses={404: {"model": ErrorResponse}},
+    "/customers",
+    response_model=list[Customer],
+    responses={
+        401: {"model": ErrorResponse},
+        403: {"model": ErrorResponse},
+    },
 )
-def get_customer(id: int, store: InMemoryStore = Depends(get_store)) -> Customer:
-    customer = store.customers.get(id)
-    if customer is None:
+async def list_customers(_admin: bool = Depends(get_current_admin_id)) -> list[Customer]:
+    """List all customers (admin only)."""
+    rows = await database.fetch_all("SELECT id, email, name FROM customers ORDER BY id")
+    return [Customer(id=r["id"], email=r["email"], name=r["name"]) for r in rows]
+
+
+@router.get(
+    "/customers/{id}",
+    response_model=Customer,
+    responses={
+        401: {"model": ErrorResponse},
+        403: {"model": ErrorResponse},
+        404: {"model": ErrorResponse},
+    },
+)
+async def get_customer(id: int, _admin: bool = Depends(get_current_admin_id)) -> Customer:
+    """Get a specific customer (admin only)."""
+    row = await database.fetch_one(
+        "SELECT id, email, name FROM customers WHERE id = :id",
+        values={"id": id},
+    )
+    if not row:
         raise not_found("Customer", id)
-    return customer
+    return Customer(id=row["id"], email=row["email"], name=row["name"])
 
 
-@router.post("", operation_id="createCustomer", summary="Create a customer", status_code=201)
-def create_customer(body: CustomerRequest, store: InMemoryStore = Depends(get_store)) -> Customer:
-    customer = Customer(id=store.next_id("customer"), **body.model_dump())
-    store.customers[customer.id] = customer
-    return customer
+@router.get(
+    "/customers/me",
+    response_model=Customer,
+    responses={
+        401: {"model": ErrorResponse},
+    },
+)
+async def get_current_customer(customer_id: int = Depends(get_current_customer_id)) -> Customer:
+    """Get current customer's own profile."""
+    row = await database.fetch_one(
+        "SELECT id, email, name FROM customers WHERE id = :id",
+        values={"id": customer_id},
+    )
+    if not row:
+        raise not_found("Customer", customer_id)
+    return Customer(id=row["id"], email=row["email"], name=row["name"])
 
 
 @router.put(
-    "/{id}",
-    operation_id="updateCustomer",
-    summary="Update a customer",
-    responses={404: {"model": ErrorResponse}},
+    "/customers/me",
+    response_model=Customer,
+    responses={
+        401: {"model": ErrorResponse},
+    },
 )
-def update_customer(id: int, body: CustomerRequest, store: InMemoryStore = Depends(get_store)) -> Customer:
-    if id not in store.customers:
-        raise not_found("Customer", id)
-    customer = Customer(id=id, **body.model_dump())
-    store.customers[id] = customer
-    return customer
+async def update_current_customer(
+    req: CustomerMeUpdate,
+    customer_id: int = Depends(get_current_customer_id),
+) -> Customer:
+    """Update current customer's profile (name/email only)."""
+    # Fetch current customer
+    current = await database.fetch_one(
+        "SELECT id, email, name FROM customers WHERE id = :id",
+        values={"id": customer_id},
+    )
+    if not current:
+        raise not_found("Customer", customer_id)
 
+    # Update fields (null means don't change)
+    email = req.email if req.email is not None else current["email"]
+    name = req.name if req.name is not None else current["name"]
 
-@router.delete(
-    "/{id}",
-    operation_id="deleteCustomer",
-    summary="Delete a customer",
-    status_code=204,
-    responses={404: {"model": ErrorResponse}},
-)
-def delete_customer(id: int, store: InMemoryStore = Depends(get_store)) -> None:
-    if store.customers.pop(id, None) is None:
-        raise not_found("Customer", id)
+    await database.execute(
+        "UPDATE customers SET email = :email, name = :name WHERE id = :id",
+        values={"email": email, "name": name, "id": customer_id},
+    )
+
+    return Customer(id=customer_id, email=email, name=name)

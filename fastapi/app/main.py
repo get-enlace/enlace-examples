@@ -1,36 +1,55 @@
-"""App factory — wires the routers, error handlers, and the Enlace adapter
-together. See ../README.md for how to run this, and ../../CONTRACT.md for
-the API it serves.
+"""App factory — wires the routers, error handlers, database, and Enlace adapter together.
+
+See ../README.md for how to run this, and ../../CONTRACT.md for the API it serves.
 """
+
+from contextlib import asynccontextmanager
 
 from enlace_fastapi import enlace
 from fastapi import FastAPI
 
 from .config import settings
+from .db import close_db, database, init_db
 from .errors import register_error_handlers
-from .routers import customers, orders, products
+from .routers import auth, carts, customers, orders, payments, products, shipments
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Manage app lifecycle: initialize DB on startup, close on shutdown."""
+    print(f"Initializing database at {settings.database_url}...")
+    await init_db()
+    print("Database initialized.")
+    yield
+    print("Closing database...")
+    await close_db()
+    print("Database closed.")
 
 
 def create_app() -> FastAPI:
     app = FastAPI(
         title="Enlace Example API (FastAPI)",
-        version="1.0.0",
+        version="2.0.0",
+        description="E-commerce API with OAuth2 auth (password + client_credentials) and carrier webhook",
+        lifespan=lifespan,
         # Enlace's chain executor reads servers[0].url to know where to send
-        # the actual HTTP requests — see ARCHITECTURE.md §3/§6. FastAPI
-        # doesn't set this on its own; every other example here sets it
-        # explicitly too (aspnetcore's AddServer, nest's .addServer(...)).
+        # the actual HTTP requests — see enlace-ui ARCHITECTURE.md.
         servers=[{"url": f"http://localhost:{settings.port}"}],
     )
 
     register_error_handlers(app)
 
+    # Register routers
+    app.include_router(auth.router)
     app.include_router(customers.router)
     app.include_router(products.router)
+    app.include_router(carts.router)
     app.include_router(orders.router)
+    app.include_router(payments.router)
+    app.include_router(shipments.router)
 
     # Mounted last: app.openapi() builds (and caches) the schema from the
-    # routers registered above, so this needs to run after them — see
-    # enlace-fastapi's own README for the same requirement.
+    # routers registered above. Enlace's own swagger UI is mounted at /enlace.
     app.include_router(enlace(spec=app.openapi()), prefix="/enlace")
 
     return app
@@ -45,4 +64,5 @@ if __name__ == "__main__":
     print(f"Enlace example (FastAPI) running at http://localhost:{settings.port}")
     print(f"  Canvas:  http://localhost:{settings.port}/enlace")
     print(f"  Spec:    http://localhost:{settings.port}/enlace/api/spec")
+    print(f"  Docs:    http://localhost:{settings.port}/docs")
     uvicorn.run(app, host="0.0.0.0", port=settings.port)

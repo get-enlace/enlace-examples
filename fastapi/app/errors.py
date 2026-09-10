@@ -14,9 +14,29 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 
-def not_found(kind: str, id_: int) -> HTTPException:
+def not_found(kind: str, id_: int | str) -> HTTPException:
     """Shorthand for the 404 case every router hits the same way."""
     return HTTPException(status_code=404, detail=f"{kind} {id_} not found.")
+
+
+def bad_request(message: str) -> HTTPException:
+    """400 Bad Request."""
+    return HTTPException(status_code=400, detail=message)
+
+
+def unauthorized(message: str = "Missing or invalid credential") -> HTTPException:
+    """401 Unauthorized."""
+    return HTTPException(status_code=401, detail=message)
+
+
+def forbidden(message: str = "Insufficient permissions") -> HTTPException:
+    """403 Forbidden."""
+    return HTTPException(status_code=403, detail=message)
+
+
+def conflict(message: str) -> HTTPException:
+    """409 Conflict (e.g., invalid state transition)."""
+    return HTTPException(status_code=409, detail=message)
 
 
 async def _handle_http_exception(_request: Request, exc: HTTPException) -> JSONResponse:
