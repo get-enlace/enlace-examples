@@ -1,0 +1,52 @@
+name: Deploy to Render (Dev)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'fastapi/**'
+      - '.github/workflows/deploy-dev.yml'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy to Render dev service
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: 'enlace-examples-dev'  # Set this to your actual Render service ID
+        run: |
+          # Get the service ID if not set (lookup by name)
+          if [ -z "$RENDER_SERVICE_ID" ]; then
+            RENDER_SERVICE_ID=$(curl -s \
+              -H "Authorization: Bearer $RENDER_API_KEY" \
+              https://api.render.com/v1/services | \
+              jq -r '.[] | select(.name=="enlace-examples-dev") | .id')
+          fi
+
+          if [ -z "$RENDER_SERVICE_ID" ]; then
+            echo "❌ Could not find Render service 'enlace-examples-dev'"
+            echo "   Make sure the service is created on Render and the name matches."
+            exit 1
+          fi
+
+          echo "🚀 Triggering deployment for service: $RENDER_SERVICE_ID"
+
+          # Trigger a new deployment
+          DEPLOY=$(curl -s -X POST \
+            -H "Authorization: Bearer $RENDER_API_KEY" \
+            https://api.render.com/v1/services/$RENDER_SERVICE_ID/deploys)
+
+          DEPLOY_ID=$(echo $DEPLOY | jq -r '.id')
+
+          if [ "$DEPLOY_ID" == "null" ]; then
+            echo "❌ Failed to trigger deployment"
+            echo "Response: $DEPLOY"
+            exit 1
+          fi
+
+          echo "✅ Deployment triggered: $DEPLOY_ID"
+          echo "📊 Monitor at: https://dashboard.render.com/services/enlace-examples-dev"
