@@ -1,3 +1,6 @@
+--index-url https://test.pypi.org/simple/
+--extra-index-url https://pypi.org/simple/
+
 fastapi>=0.100
 uvicorn[standard]>=0.30
 pydantic>=2.0
@@ -12,6 +15,5 @@ aiosqlite>=0.19  # sqlite async driver
 argon2-cffi>=23.0
 python-multipart>=0.0.6
 
-# enlace-fastapi integration
-# (not published yet — points at sibling enlace-python checkout)
--e ../../enlace-python/packages/enlace-fastapi
+# Enlace adapter (published to test.pypi, fallback to pypi for dependencies)
+enlace-fastapi>=0.0.1.dev34459610476

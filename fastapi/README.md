@@ -103,12 +103,14 @@ This demonstrates Enlace's core value: chaining across different API actors and 
 
 ## Picking up a newer `enlace-fastapi`
 
-`requirements.txt` installs `enlace-fastapi` as an editable path dependency
-(`-e ../../enlace-python/packages/enlace-fastapi`). Once it's published to PyPI, swap that for:
+`requirements.txt` installs `enlace-fastapi` from test.pypi (development builds) with a fallback to the main PyPI index for dependencies. The latest dev build from test.pypi is pinned in requirements.txt.
 
-```
-enlace-fastapi==<version>
-```
+To upgrade to a newer version:
+1. Check test.pypi for the latest: https://test.pypi.org/project/enlace-fastapi/
+2. Update the version pin in `requirements.txt`
+3. `pip install -r requirements.txt --upgrade`
+
+Once a production release is pushed to PyPI, swap the `--index-url` line to use only https://pypi.org/simple/
 
 ## Environment Variables
 
