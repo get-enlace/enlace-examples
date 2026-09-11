@@ -1,19 +1,20 @@
 --index-url https://test.pypi.org/simple/
 --extra-index-url https://pypi.org/simple/
 
-fastapi>=0.100
-uvicorn[standard]>=0.30
-pydantic>=2.0
+# Core dependencies (pinned to stable versions)
+fastapi>=0.100.0,<1.0.0
+uvicorn[standard]>=0.24.0
+pydantic>=2.0.0,<3.0.0
 
 # Database
-sqlalchemy>=2.0
-databases[postgresql,sqlite]>=0.8
-asyncpg>=0.29  # postgres driver
-aiosqlite>=0.19  # sqlite async driver
+sqlalchemy>=2.0.0,<3.0.0
+databases[postgresql,sqlite]>=0.8.0
+asyncpg>=0.29.0
+aiosqlite>=0.19.0
 
 # Authentication
-argon2-cffi>=23.0
+argon2-cffi>=23.0.0
 python-multipart>=0.0.6
 
-# Enlace adapter (published to test.pypi, fallback to pypi for dependencies)
+# Enlace adapter (latest dev build from test.pypi)
 enlace-fastapi>=0.0.1.dev34459610476
