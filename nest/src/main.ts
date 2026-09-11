@@ -15,9 +15,14 @@ async function bootstrap() {
   const config = new DocumentBuilder()
     .setTitle('Enlace Example API (NestJS)')
     .setVersion('1.0.0')
-    // Enlace's chain executor reads servers[0].url to know where to send
-    // the actual HTTP requests — see ARCHITECTURE.md §3/§6.
-    .addServer(`http://localhost:${port}`)
+    // No .addServer() call on purpose — Enlace UI resolves the request base
+    // URL against wherever the spec document itself was fetched from
+    // (enlace-ui's resolveBaseUrl, per the OpenAPI Server Object's own
+    // default of `/` when `servers` is omitted), so this works unmodified
+    // on localhost or wherever this app is actually deployed. A hardcoded
+    // `http://localhost:${port}` here would only be correct on localhost —
+    // see ARCHITECTURE.md §3/§6, and enlace-ui's git history for the fix
+    // that made this unnecessary.
     .build();
 
   // One call: generate the spec from decorators and hand it to Enlace.

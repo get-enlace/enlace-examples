@@ -37,9 +37,15 @@ def create_app() -> FastAPI:
         version="2.0.0",
         description="E-commerce API with OAuth2 auth (password + client_credentials) and carrier webhook",
         lifespan=lifespan,
-        # Enlace's chain executor reads servers[0].url to know where to send
-        # the actual HTTP requests — see enlace-ui ARCHITECTURE.md.
-        servers=[{"url": f"http://localhost:{settings.port}"}],
+        # No `servers` entry on purpose — Enlace UI resolves the request base
+        # URL against wherever the spec document itself was fetched from
+        # (enlace-ui's resolveBaseUrl, per the OpenAPI Server Object's own
+        # default of `/` when `servers` is omitted), so this works unmodified
+        # on Render, localhost, or anywhere else this app is deployed. An
+        # earlier hardcoded `servers=[{"url": "https://enlace-fastapi.onrender.com"}]`
+        # here was a workaround for a real gap in enlace-ui, since fixed
+        # there — see its git history for that fix if this ever needs
+        # revisiting.
     )
 
     register_error_handlers(app)
