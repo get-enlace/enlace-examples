@@ -6,7 +6,7 @@ available credentials.
 """
 
 from fastapi import Depends, Header
-from fastapi.security import OAuth2PasswordBearer, APIKeyHeader
+from fastapi.security import APIKeyHeader, HTTPBearer
 
 from .auth import verify_admin_bearer_token, verify_carrier_api_key, verify_customer_bearer_token
 from .errors import forbidden, unauthorized
@@ -14,15 +14,13 @@ from .errors import forbidden, unauthorized
 # FastAPI security schemes (auto-added to OpenAPI spec with distinct identities)
 # These are declared separately so Enlace can distinguish between them
 
-customer_oauth = OAuth2PasswordBearer(
-    tokenUrl="/oauth/token",
-    scopes={"customer": "Customer scope"},
+customer_oauth = HTTPBearer(
+    scheme_name="Customer JWT",
     description="Customer login (OAuth2 password grant)",
 )
 
-admin_oauth = OAuth2PasswordBearer(
-    tokenUrl="/oauth/token",
-    scopes={"admin": "Admin scope"},
+admin_oauth = HTTPBearer(
+    scheme_name="Admin JWT",
     description="Admin/service credentials (OAuth2 client credentials grant)",
 )
 

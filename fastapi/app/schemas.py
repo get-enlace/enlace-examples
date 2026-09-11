@@ -46,8 +46,12 @@ class LoginRequest(CamelModel):
     password: str
 
 
-class TokenResponse(CamelModel):
-    """OAuth2 RFC 6749 compliant token response."""
+class TokenResponse(BaseModel):
+    """OAuth2 RFC 6749 compliant token response.
+
+    Uses snake_case (not camelCase) to comply with OAuth2 spec.
+    Enlace's credential engine expects access_token, not accessToken.
+    """
     access_token: str
     token_type: str  # always "Bearer"
     expires_in: int  # in seconds

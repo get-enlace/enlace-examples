@@ -14,103 +14,111 @@ This guide walks through the complete 8-step reference chain that demonstrates E
 - Access to https://enlace-fastapi.onrender.com/enlace/
 - No local setup required
 
-## Part 1: Set Up Credentials
+## Part 1: Set Up Credentials in Enlace
 
-Three auth schemes are declared in the OpenAPI spec. Obtain credentials using curl, then add them to Enlace.
+You need **three credentials** for this chain:
+- **Customer JWT** (password grant) — for cart and order operations
+- **Admin JWT** (client credentials grant) — for fulfillment (admin operation)
+- **API Key** (carrier) — for delivery status updates
 
-### Option A: Get Credentials via curl
+The OpenAPI spec declares three distinct security schemes. Enlace will show all three.
 
-**Customer Token (Password Grant):**
+### Step 1A: Generate Tokens via curl (Manual Approach)
+
+First, get the actual tokens you'll use:
+
+**Customer Token:**
 ```bash
 curl -X POST https://enlace-fastapi.onrender.com/oauth/token \
   -d "grant_type=password&username=alice@example.com&password=demo-password-123" \
   -H "Content-Type: application/x-www-form-urlencoded"
 ```
-Response: `{"accessToken": "...", "tokenType": "Bearer", "expiresIn": 3600, "scope": "customer"}`
+Response:
+```json
+{
+  "access_token": "eyJhbG...",
+  "token_type": "Bearer",
+  "expires_in": 3600,
+  "scope": "customer"
+}
+```
+Copy the `access_token` value.
 
-**Admin Token (Client Credentials Grant):**
+**Admin Token:**
 ```bash
 curl -X POST https://enlace-fastapi.onrender.com/oauth/token \
   -d "grant_type=client_credentials&client_id=admin-service&client_secret=admin-service-secret" \
   -H "Content-Type: application/x-www-form-urlencoded"
 ```
-Response: `{"accessToken": "...", "tokenType": "Bearer", "expiresIn": 3600, "scope": "admin"}`
-
-**Carrier API Key:**
+Response:
+```json
+{
+  "access_token": "eyJhbG...",
+  "token_type": "Bearer",
+  "expires_in": 3600,
+  "scope": "admin"
+}
 ```
-carrier-demo-key
-```
-(Fixed value — see fixtures in fastapi/app/db.py)
+Copy the `access_token` value.
 
-### Option B: Add Credentials to Enlace (Recommended)
-
-This lets Enlace auto-generate tokens using the OAuth2 spec:
+### Step 1B: Configure Credentials in Enlace (Manual Token Approach)
 
 1. Go to **https://enlace-fastapi.onrender.com/enlace/**
 2. Click **Credentials** (top-right or sidebar)
-3. Add three credentials:
+3. Enlace shows three credential types. Create three credentials:
 
-   **Customer (OAuth2 Password):**
-   - Name: `customer`
-   - Type: `oauth2_password`
-   - Token URL: `https://enlace-fastapi.onrender.com/oauth/token`
-   - Username: `alice@example.com`
-   - Password: `demo-password-123`
+   **Credential 1: Customer**
+   - Type: "Customer JWT" (HTTPBearer, from OpenAPI)
+   - Name: `customer` (optional, for your reference)
+   - Token: `<paste the access_token from curl above>`
 
-   **Admin (OAuth2 Client Credentials):**
-   - Name: `admin`
-   - Type: `oauth2_clientCredentials`
-   - Token URL: `https://enlace-fastapi.onrender.com/oauth/token`
-   - Client ID: `admin-service`
-   - Client Secret: `admin-service-secret`
+   **Credential 2: Admin**
+   - Type: "Admin JWT" (HTTPBearer, from OpenAPI)
+   - Name: `admin` (optional, for your reference)
+   - Token: `<paste the access_token from curl above>`
 
-   **Carrier (API Key):**
-   - Name: `carrier`
-   - Type: `apiKey`
-   - Parameter Name: `X-Carrier-Api-Key`
-   - Location: `header`
+   **Credential 3: Carrier**
+   - Type: "X-Carrier-Api-Key" (APIKeyHeader, from OpenAPI)
+   - Name: `carrier` (optional, for your reference)
    - Key: `carrier-demo-key`
 
-With this setup, Enlace will automatically generate tokens when you attach the credential to a node.
+When you attach these credentials to nodes in the chain, Enlace will use the tokens you provided.
 
-### Add Credential 1: Customer (OAuth2 Password)
+### Step 1C (Alternative, Recommended): Let Enlace Auto-Generate Tokens
 
-| Field | Value |
-|-------|-------|
-| Name | `customer` |
-| Type | `oauth2_password` |
-| Token URL | `https://enlace-fastapi.onrender.com/oauth/token` |
-| Username | `alice@example.com` |
-| Password | `demo-password-123` |
+Instead of manually generating and pasting tokens, reconfigure the credentials to let Enlace handle token generation automatically:
 
-**Save** the credential.
+1. Go to **https://enlace-fastapi.onrender.com/enlace/**
+2. Click **Credentials**
+3. You should see the three credentials from Step 1B. Modify them:
 
-### Add Credential 2: Admin (OAuth2 Client Credentials)
+   **Modify Credential 1: Customer**
+   - Click the "customer" credential to edit
+   - Change from: "Token: `<token>`"
+   - Change to:
+     - Type: "Customer JWT" (HTTPBearer)
+     - Grant Type: `password` (Enlace will auto-generate)
+     - Token URL: `https://enlace-fastapi.onrender.com/oauth/token`
+     - Username: `alice@example.com`
+     - Password: `demo-password-123`
 
-| Field | Value |
-|-------|-------|
-| Name | `admin` |
-| Type | `oauth2_clientCredentials` |
-| Token URL | `https://enlace-fastapi.onrender.com/oauth/token` |
-| Client ID | `admin-service` |
-| Client Secret | `admin-service-secret` |
-| Client Auth Method | `body` (or `basic`; both work) |
+   **Modify Credential 2: Admin**
+   - Click the "admin" credential to edit
+   - Change from: "Token: `<token>`"
+   - Change to:
+     - Type: "Admin JWT" (HTTPBearer)
+     - Grant Type: `client_credentials` (Enlace will auto-generate)
+     - Token URL: `https://enlace-fastapi.onrender.com/oauth/token`
+     - Client ID: `admin-service`
+     - Client Secret: `admin-service-secret`
 
-**Save** the credential.
+   **Keep Credential 3: Carrier**
+   - "X-Carrier-Api-Key" already uses the API key (no OAuth2 auto-generation available)
+   - Leave as-is with `carrier-demo-key`
 
-### Add Credential 3: Carrier (API Key)
+When you attach the "Customer JWT" or "Admin JWT" credentials to nodes, **Enlace automatically requests a fresh token** using the configured grant type, then attaches it as the Bearer token. No manual token generation or refresh needed. This approach is more practical for real workflows since tokens don't expire mid-chain.
 
-| Field | Value |
-|-------|-------|
-| Name | `carrier` |
-| Type | `apiKey` |
-| Parameter Name | `X-Carrier-Api-Key` |
-| Location | `header` |
-| Key Value | `carrier-demo-key` |
 
-**Save** the credential.
-
-You now have all three credentials configured. Close the credential manager.
 
 ## Part 2: Build the 8-Step Chain
 
