@@ -89,7 +89,7 @@ Schema is created automatically on startup (upsert-if-missing fixtures too).
 
 ## Live Demo Instance
 
-🚀 **Live at:** https://enlace-fastapi.onrender.com/enlace/
+🚀 **Live at:** https://enlace-fastapi.onrender.com/enlace/ (auto-deployed via GitHub Actions)
 
 - **Canvas:** https://enlace-fastapi.onrender.com/enlace/
 - **API Docs:** https://enlace-fastapi.onrender.com/docs
