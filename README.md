@@ -1,15 +1,3 @@
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/get-enlace/enlace-examples/main/brand/lockup-dark.svg">
-  <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/get-enlace/enlace-examples/main/brand/lockup-light.svg">
-  <img alt="Enlace" src="https://raw.githubusercontent.com/get-enlace/enlace-examples/main/brand/lockup-light.svg" width="280">
-</picture>
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/get-enlace/enlace-examples/main/brand/lockup-dark.svg">
-  <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/get-enlace/enlace-examples/main/brand/lockup-light.svg">
-  <img alt="Enlace" src="https://raw.githubusercontent.com/get-enlace/enlace-examples/main/brand/lockup-light.svg" width="280">
-</picture>
-
 # enlace-examples
 
 Sample apps that consume Enlace's per-framework adapters, used to test each adapter
