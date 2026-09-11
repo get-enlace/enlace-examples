@@ -17,6 +17,11 @@ from .routers import auth, carts, customers, orders, payments, products, shipmen
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Manage app lifecycle: initialize DB on startup, close on shutdown."""
+    if not settings.database_url:
+        raise RuntimeError(
+            "DATABASE_URL environment variable is required. "
+            "See README.md for setup instructions."
+        )
     print(f"Initializing database at {settings.database_url}...")
     await init_db()
     print("Database initialized.")

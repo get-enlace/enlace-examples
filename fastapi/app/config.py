@@ -13,12 +13,9 @@ class Settings:
     # Server
     port: int = int(os.environ.get("PORT", "4000"))
 
-    # Database: sqlite by default (zero-setup dev), or postgres via DATABASE_URL
-    # SQLite requires aiosqlite driver for async; URL must use sqlite+aiosqlite:// scheme
-    database_url: str = os.environ.get(
-        "DATABASE_URL",
-        "sqlite+aiosqlite:///./fastapi.db"  # relative to cwd where uvicorn runs
-    )
+    # Database: PostgreSQL (Neon recommended for dev/prod)
+    # DATABASE_URL is required (no SQLite fallback in production example)
+    database_url: str = os.environ.get("DATABASE_URL", "")
 
     # Auth fixtures (seeded on startup, all overridable)
     demo_customer_email: str = os.environ.get("DEMO_CUSTOMER_EMAIL", "alice@example.com")

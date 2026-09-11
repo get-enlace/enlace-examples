@@ -1,0 +1,54 @@
+name: Deploy FastAPI to Render
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'fastapi/**'
+      - 'requirements.txt'
+      - '.github/workflows/deploy.yml'
+
+  # Triggered by enlace-python when adapter deploys
+  repository_dispatch:
+    types: [enlace-fastapi-deployed]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Determine deploy trigger
+        run: |
+          if [ "${{ github.event_name }}" = "repository_dispatch" ]; then
+            echo "📢 Trigger: Adapter update from enlace-python"
+            echo "TRIGGER=adapter_update" >> $GITHUB_ENV
+          else
+            echo "🔄 Trigger: Direct changes to fastapi/"
+            echo "TRIGGER=fastapi_change" >> $GITHUB_ENV
+          fi
+
+      - name: Deploy to Render
+        env:
+          RENDER_DEPLOY_HOOK: ${{ secrets.RENDER_DEPLOY_HOOK }}
+        run: |
+          if [ -z "$RENDER_DEPLOY_HOOK" ]; then
+            echo "❌ RENDER_DEPLOY_HOOK secret not configured"
+            echo "   See DEPLOYMENT.md for setup instructions"
+            exit 1
+          fi
+
+          echo "🚀 Deploying (${{ env.TRIGGER }})..."
+
+          # Render deploy hooks are simpler than API calls
+          # Just POST to the hook URL and it triggers a deployment
+          RESPONSE=$(curl -s -X POST "$RENDER_DEPLOY_HOOK")
+
+          if echo "$RESPONSE" | grep -q "Build started"; then
+            echo "✅ Deployment triggered"
+            echo "📊 Monitor: https://dashboard.render.com/services/enlace-examples"
+          else
+            echo "⚠️  Response: $RESPONSE"
+            echo "   Deployment may still succeed; check Render dashboard"
+          fi

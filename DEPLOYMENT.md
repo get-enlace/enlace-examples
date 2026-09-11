@@ -1,197 +1,238 @@
 # Deployment Guide: Enlace Examples on Render
 
-This document covers deploying the FastAPI reference implementation to [Render](https://render.com).
+FastAPI reference implementation, deployed as a **single instance** that stays synced with the latest adapter and UI.
 
 ## Architecture
 
-Two separate Render services:
+**One Render service** that deploys when:
+1. **Direct changes** to `fastapi/` folder in this repo
+2. **Adapter updates** triggered by `enlace-python` (via `repository_dispatch`)
 
-| Service | Trigger | Branch | Database | URL Pattern |
-|---------|---------|--------|----------|------------|
-| **dev** | Every push to `main` | `main` | Postgres (dev) | `enlace-examples-dev.onrender.com` |
-| **prod** | Manual (release tags) | Tagged releases | Postgres (prod) | `enlace-examples-prod.onrender.com` |
+This ensures:
+- Always using latest `enlace-fastapi` adapter
+- Adapter always matches latest `enlace-ui` (because adapter auto-updates on UI changes)
+- No manual version management
 
-Both use the same FastAPI code; databases are kept separate for safety.
+```
+enlace-ui deploys
+  ↓ triggers
+enlace-python adapter redeploy
+  ↓ triggers (repository_dispatch)
+enlace-examples redeploy
+  ↓
+Single Render instance always in sync
+```
 
 ## Prerequisites
 
-1. **Render account**: https://render.com (free tier works for dev/testing)
-2. **GitHub repository**: enlace-examples pushed and accessible
-3. **Neon Postgres databases**: One for dev, one for prod (free tier available at https://neon.tech)
+1. **Render account**: https://render.com (free tier works)
+2. **Neon Postgres database**: https://neon.tech (free tier available)
+3. **GitHub repository**: `get-enlace/enlace-examples` pushed
 
-## Step 1: Create Neon Postgres Databases
-
-### Dev Database
+## Step 1: Create Neon Postgres Database
 
 1. Go to https://console.neon.tech
-2. Create a new project: `enlace-examples-dev`
-3. Copy the connection string, it will look like:
+2. Create a new project: `enlace-examples`
+3. Copy the connection string:
    ```
    postgresql://user:password@ep-xyz.us-east-1.neon.tech/dbname
    ```
-4. Save this as `NEON_DEV_URL` — you'll need it for the dev Render service
 
-### Prod Database
+## Step 2: Create Render Web Service
 
-1. Create another project: `enlace-examples-prod`
-2. Copy the connection string as `NEON_PROD_URL`
-
-## Step 2: Create Render Services
-
-### Dev Service
-
-1. Go to https://dashboard.render.com/services
+1. Go to https://dashboard.render.com
 2. Click **New +** → **Web Service**
 3. **Connect Repository**:
-   - Select your GitHub account
-   - Find and select `get-enlace/enlace-examples`
+   - Select GitHub account
+   - Find `get-enlace/enlace-examples`
    - Branch: `main`
-   - Auto-deploy: ✓ Yes
 
 4. **Configuration**:
-   - **Name**: `enlace-examples-dev`
-   - **Root Directory**: `fastapi` (since it's a monorepo)
+   - **Name**: `enlace-examples`
+   - **Root Directory**: `fastapi`
    - **Runtime**: `Python 3.11`
    - **Build Command**: `pip install -r requirements.txt`
    - **Start Command**: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
-   - **Plan**: Free (or Starter if you want more reliability)
 
 5. **Environment Variables**:
-   - `DATABASE_URL`: (paste your `NEON_DEV_URL` here)
-   - `PORT`: `10000`
+   - `DATABASE_URL`: (paste your Neon connection string)
 
-6. Click **Create Web Service**
+6. **Auto-Deploy**: Leave OFF for now (we'll use deploy hooks)
 
-The dev instance will auto-deploy whenever you push to `main`.
+7. Click **Create Web Service** and wait for it to finish building
 
-### Prod Service
+## Step 3: Get Render Deploy Hook
 
-Repeat the same process with these differences:
+Deploy hooks let workflows trigger deployments without API keys.
 
-1. **Name**: `enlace-examples-prod`
-2. **Branch**: Leave blank (you'll trigger this manually via GitHub Actions)
-3. **Auto-deploy**: ✗ No (we'll deploy via GitHub workflow on release tags)
-4. **Environment Variables**:
-   - `DATABASE_URL`: (paste your `NEON_PROD_URL` here)
+1. In Render dashboard → Service (`enlace-examples`) → Settings
+2. Scroll to **Deploy Hooks**
+3. Click **Create Deploy Hook**
+4. Name: `GitHub` (or anything)
+5. Copy the hook URL: `https://api.render.com/deploy/srv_...?key=...`
 
-Note: For manual deployment, you'll need a **Render API key** (see Step 3 below).
+## Step 4: Add GitHub Secret
 
-## Step 3: Get Render Deployment Token
-
-For GitHub Actions to auto-deploy, we need a Render API key:
-
-1. Go to https://dashboard.render.com/account
-2. Scroll to **API Keys**
-3. Click **Create API Key**
-4. Copy the key and save it somewhere safe (you'll only see it once)
-5. Go to your GitHub repo → **Settings** → **Secrets and variables** → **Actions**
-6. Create a new secret: `RENDER_API_KEY` = (paste the Render API key)
-
-## Step 4: Configure GitHub Secrets
-
-In your GitHub repo (`get-enlace/enlace-examples`), add:
-
-**Settings** → **Secrets and variables** → **Actions** → **New repository secret**
-
-| Secret | Value |
-|--------|-------|
-| `RENDER_API_KEY` | Your Render API key (from Step 3) |
-
-That's it! GitHub Actions workflows will use this to trigger deployments.
+1. Go to your repo → **Settings** → **Secrets and variables** → **Actions**
+2. Click **New repository secret**:
+   - **Name**: `RENDER_DEPLOY_HOOK`
+   - **Value**: (paste the hook URL from Step 3)
 
 ## Step 5: Verify Deployment
 
-Once the Render service is created:
+### Test Direct Changes
 
-1. **Dev instance** should auto-deploy on next push to `main`
-   - Watch the deploy at: https://dashboard.render.com/services/enlace-examples-dev
-   - Access at: https://enlace-examples-dev.onrender.com/enlace
+1. Make a small change to `fastapi/README.md`
+2. Commit and push to `main`
+3. Go to https://github.com/get-enlace/enlace-examples/actions
+4. Watch the `Deploy FastAPI to Render` workflow run
+5. Render should auto-deploy
+6. Monitor at: https://dashboard.render.com/services/enlace-examples
 
-2. **Prod instance** deploys when you create a release in GitHub:
-   - Go to your GitHub repo → **Releases** → **Create a new release**
-   - Tag: `v0.1.0` (or similar)
-   - GitHub Actions will automatically trigger the prod deployment
-   - Access at: https://enlace-examples-prod.onrender.com/enlace
+### Access the Live Instance
 
-## Monitoring
+- **Canvas**: https://enlace-examples.onrender.com/enlace
+- **API Docs**: https://enlace-examples.onrender.com/docs
+- **Products**: https://enlace-examples.onrender.com/products
+
+### Test Auth
+
+```bash
+curl -X POST https://enlace-examples.onrender.com/oauth/token \
+  -d "grant_type=password&username=alice@example.com&password=demo-password-123" \
+  -H "Content-Type: application/x-www-form-urlencoded"
+```
+
+Should return:
+```json
+{
+  "accessToken": "...",
+  "tokenType": "Bearer",
+  "expiresIn": 3600,
+  "scope": "customer"
+}
+```
+
+## Step 6: Set Up Adapter Sync (enlace-python)
+
+When a new `enlace-fastapi` version is published, it should trigger a redeploy of this instance.
+
+In the **`enlace-python` repo**, add a deploy workflow that triggers this repo:
+
+```yaml
+# In enlace-python/.github/workflows/deploy.yml (or similar)
+- name: Notify enlace-examples to redeploy
+  if: success()  # Only after successful adapter deployment
+  run: |
+    curl -X POST \
+      -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+      -H "Accept: application/vnd.github.v3+raw" \
+      https://api.github.com/repos/get-enlace/enlace-examples/dispatches \
+      -d '{"event_type":"enlace-fastapi-deployed"}'
+```
+
+Once that's in place, whenever `enlace-python` deploys a new adapter version, it automatically triggers an `enlace-examples` redeploy.
+
+## Monitoring & Maintenance
 
 ### Live Logs
 
-1. Dev: https://dashboard.render.com/services/enlace-examples-dev
-2. Prod: https://dashboard.render.com/services/enlace-examples-prod
+https://dashboard.render.com/services/enlace-examples
 
-Each service shows:
+Shows:
 - Deployment status (building, deploying, live)
 - Application logs in real-time
-- Error messages if something fails
+- Any errors during startup
 
-### Health Checks
+### Recent Deployments
 
-Each Render service auto-performs health checks on the `/health` endpoint (if you add one) or via the root `/docs` endpoint (our FastAPI Swagger UI is alive).
+**Render dashboard** → Service → **Deployments** tab
+
+Lists all past deploys with:
+- Trigger (GitHub push, deploy hook, manual)
+- Status (success/failed)
+- Duration
+- Logs
+
+### Manual Redeploy
+
+If needed:
+1. Render dashboard → Service → **Deployments** tab
+2. Click **Trigger Deploy** (top right)
+
+Or via GitHub:
+1. This repo → Actions → `Deploy FastAPI to Render` → Run workflow
+
+### Restart Service
+
+If env vars change and you want immediate restart (without redeploying):
+1. Render dashboard → Service → **Settings** → Danger Zone
+2. Click **Restart**
 
 ## Troubleshooting
 
-### Deployment Fails
+| Issue | Solution |
+|-------|----------|
+| Deployment fails with "module not found" | Check `requirements.txt` is in `fastapi/` root |
+| "RENDER_DEPLOY_HOOK secret not found" | Add the secret to GitHub (Step 4) |
+| App starts but can't connect to database | Verify `DATABASE_URL` is set in Render → Environment |
+| Free tier keeps spinning down | Upgrade plan, or use a ping service to keep it alive |
+| Adapter didn't trigger a redeploy | Manually trigger via Render dashboard for now; set up enlace-python workflow later |
 
-1. Check the Render logs for the specific error
-2. Common issues:
-   - **Missing `requirements.txt`**: Make sure it's in the `fastapi/` root
-   - **Missing environment variables**: Verify `DATABASE_URL` is set in Render dashboard
-   - **Port mismatch**: Start command uses `$PORT` env var (Render sets this dynamically)
-
-### Database Connection Errors
-
-1. Verify the Neon connection string is correct (check Settings → Connection string)
-2. Ensure Neon's IP whitelist allows all IPs (should be default for free tier)
-3. Test locally with `export DATABASE_URL="..."; python -m app.main`
-
-### High Memory Usage
-
-If Render is spinning down your free-tier service:
-- Upgrade to a paid plan
-- Or use Render's scheduled cleanup (Services → Settings → Cron jobs)
-
-## Local Testing with Neon Databases
-
-To test against a real Postgres database locally:
-
-```bash
-export DATABASE_URL="postgresql://user:pass@host/dbname"
-python -m app.main
-```
-
-The app will:
-1. Create all tables on startup
-2. Seed fixtures (upsert-if-missing)
-3. Serve requests normally
-
-## CI/CD Pipeline Summary
+## Deployment Triggers Summary
 
 ```
-push to main
-    ↓
-GitHub Actions runs tests (if configured)
-    ↓
-Auto-deploy to Render dev service
-    ↓
-Dev instance live at enlace-examples-dev.onrender.com
+Event                          Workflow         Deploy?
+─────────────────────────────────────────────────────
+Push to fastapi/ folder        deploy.yml       ✅ Yes
+Push to other folders          deploy.yml       ❌ No
+enlace-python dispatches       deploy.yml       ✅ Yes
+Manual trigger in GitHub       deploy.yml       ✅ Yes
+Manual trigger in Render       Render API       ✅ Yes
+```
+
+## Environment Variables
+
+**In Render Service** (set in dashboard):
+
+- `DATABASE_URL` — Neon Postgres connection string
+  - Format: `postgresql://user:pass@host/dbname`
+- `PORT` — Set automatically by Render to a random port
+- `DEMO_CUSTOMER_EMAIL` — (optional, default: `alice@example.com`)
+- `DEMO_CUSTOMER_PASSWORD` — (optional, default: `demo-password-123`)
+- `ADMIN_CLIENT_ID` — (optional, default: `admin-service`)
+- `ADMIN_CLIENT_SECRET` — (optional, default: `admin-service-secret`)
+- `CARRIER_API_KEY` — (optional, default: `carrier-demo-key`)
+
+See `fastapi/README.md` for all available env vars.
+
+## CI/CD Pipeline
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  enlace-ui change                                       │
+│  ↓                                                      │
+│  enlace-ui auto-deploys                                │
+│  ↓                                                      │
+│  enlace-python detects @get-enlace/ui update          │
+│  ↓                                                      │
+│  enlace-python auto-deploys new adapter version       │
+│  ↓                                                      │
+│  enlace-python triggers repository_dispatch            │
+│  on get-enlace/enlace-examples                         │
+│  ↓                                                      │
+│  GitHub Actions: deploy.yml runs                       │
+│  ↓                                                      │
+│  Curl → Render deploy hook                            │
+│  ↓                                                      │
+│  Render pulls latest code (fastapi/ + new adapter)    │
+│  ↓                                                      │
+│  Rebuild with: pip install -r requirements.txt        │
+│  ↓                                                      │
+│  Deploy ✅ → Live with latest adapter + UI            │
+└─────────────────────────────────────────────────────────┘
+```
 
 ---
 
-Create GitHub Release tag
-    ↓
-GitHub Actions trigger deploy workflow
-    ↓
-Call Render API to deploy prod service
-    ↓
-Prod instance live at enlace-examples-prod.onrender.com
-```
-
-## Next: Setting up GitHub Workflows
-
-Once your Render services are created, see `.github/workflows/` for:
-- `test.yml` — Runs tests on every push (optional)
-- `deploy-dev.yml` — Auto-deploys dev instance on push to main
-- `deploy-prod.yml` — Manual deploys prod instance on GitHub release
-
-(These will be created in the next section.)
+For quick reference, see `SETUP_CHECKLIST.md`.

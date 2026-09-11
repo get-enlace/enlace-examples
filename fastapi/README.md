@@ -1,12 +1,12 @@
 # enlace-examples / fastapi
 
-A FastAPI service implementing the [shared example contract](../CONTRACT.md) — E-commerce API with OAuth2 auth and carrier webhooks. In-memory for dev, swappable to Postgres for production via `DATABASE_URL` env var.
+A FastAPI service implementing the [shared example contract](../CONTRACT.md) — E-commerce API with OAuth2 auth and carrier webhooks.
 
-The OpenAPI document is generated automatically by FastAPI from Pydantic schemas and route signatures — zero hand-written annotations.
+**Production reference implementation** using PostgreSQL (Neon recommended). The OpenAPI document is generated automatically by FastAPI from Pydantic schemas and route signatures — zero hand-written annotations.
 
 ## Features
 
-- **SQLite by default** (zero external setup) + Postgres via `DATABASE_URL`
+- **PostgreSQL** (Neon recommended for dev/prod; `DATABASE_URL` required)
 - **OAuth2 token endpoint** (`POST /oauth/token`) supporting RFC 6749 password + client_credentials grants
 - **Three auth actors**: Customer (password grant) → Cart/Orders/Profile, Admin (client_credentials) → Product mgmt/Fulfillment, Carrier (static API key) → Delivery status webhook
 - **Fixtures seeded on startup** (upsert-if-missing): demo customer `alice@example.com`, admin client `admin-service`, carrier key `carrier-demo-key`
@@ -14,19 +14,27 @@ The OpenAPI document is generated automatically by FastAPI from Pydantic schemas
 
 ## Setup
 
+**Requires PostgreSQL** — Local Postgres, Neon free tier, or Render's Postgres all work.
+
+### 1. Get a Postgres connection string
+
+- **Local**: `postgresql://user:password@localhost/dbname`
+- **Neon** (free): https://console.neon.tech → Create project → Copy connection string
+- **Render**: Provisions Postgres with the web service
+
+### 2. Install & run
+
 ```bash
+export DATABASE_URL="postgresql://..."  # Your connection string
+
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-```
 
-## Run
-
-```bash
 python -m app.main
 ```
 
-Or, for auto-reload during development:
+Or with auto-reload (dev only):
 
 ```bash
 uvicorn app.main:app --reload --port 4000
@@ -70,15 +78,14 @@ Both produce `Authorization: Bearer <token>` headers for subsequent API calls. C
 
 ## Database
 
-**Dev (default):** SQLite at `fastapi.db` (auto-created on first run).
+**PostgreSQL only** (async driver via `asyncpg`).
 
-**Production:** Set `DATABASE_URL` (e.g., `postgresql://user:password@localhost/enlace_demo`) to use Postgres. Schema is created automatically on startup (upsert-if-missing fixtures too).
+Set `DATABASE_URL` to any Postgres instance:
+- Local: `postgresql://user:password@localhost/dbname`
+- Neon (free): `postgresql://user:password@ep-xxx.us-east-1.neon.tech/dbname`
+- Render: Provisioned automatically with the web service
 
-Supported URLs:
-- `sqlite:///./fastapi.db` (default, relative path)
-- `sqlite:////tmp/enlace.db` (absolute path)
-- `postgresql://user:pass@host/dbname`
-- `postgresql+asyncpg://user:pass@host/dbname`
+Schema is created automatically on startup (upsert-if-missing fixtures too).
 
 ## Reference Demo Chain
 

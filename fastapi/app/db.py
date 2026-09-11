@@ -36,7 +36,7 @@ async def init_db() -> None:
     """Initialize database: create tables, seed fixtures (upsert-if-missing)."""
     await database.connect()
 
-    # Create tables from raw SQL schema
+    # Create tables from PostgreSQL schema DDL
     for statement in SCHEMA_DDL.split(';'):
         statement = statement.strip()
         if statement:
@@ -71,10 +71,14 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 # Schema DDL (no migrations, just raw SQL executed on startup)
 # =============================================================================
 
+# =============================================================================
+# PostgreSQL Schema DDL (production uses Postgres/Neon)
+# =============================================================================
+
 SCHEMA_DDL = """
 -- Customers (register or seeded demo customer)
 CREATE TABLE IF NOT EXISTS customers (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id SERIAL PRIMARY KEY,
     email TEXT NOT NULL UNIQUE,
     name TEXT NOT NULL,
     password_hash TEXT NOT NULL,
@@ -83,7 +87,7 @@ CREATE TABLE IF NOT EXISTS customers (
 
 -- Products (admin-managed catalog)
 CREATE TABLE IF NOT EXISTS products (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id SERIAL PRIMARY KEY,
     name TEXT NOT NULL,
     price REAL NOT NULL,
     stock INTEGER NOT NULL,
@@ -92,16 +96,16 @@ CREATE TABLE IF NOT EXISTS products (
 
 -- Carts (per customer, transient until checkout)
 CREATE TABLE IF NOT EXISTS carts (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id SERIAL PRIMARY KEY,
     customer_id INTEGER NOT NULL,
-    checked_out BOOLEAN NOT NULL DEFAULT 0,
+    checked_out BOOLEAN NOT NULL DEFAULT false,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE
 );
 
 -- Cart items (many-to-many: cart -> product)
 CREATE TABLE IF NOT EXISTS cart_items (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id SERIAL PRIMARY KEY,
     cart_id INTEGER NOT NULL,
     product_id INTEGER NOT NULL,
     quantity INTEGER NOT NULL,
@@ -112,10 +116,10 @@ CREATE TABLE IF NOT EXISTS cart_items (
 
 -- Orders (created from a cart at checkout)
 CREATE TABLE IF NOT EXISTS orders (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id SERIAL PRIMARY KEY,
     customer_id INTEGER NOT NULL,
     cart_id INTEGER NOT NULL,
-    status TEXT NOT NULL DEFAULT 'pending_payment',  -- pending_payment | paid | shipped | delivered | cancelled
+    status TEXT NOT NULL DEFAULT 'pending_payment',
     total REAL NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (customer_id) REFERENCES customers(id),
@@ -124,7 +128,7 @@ CREATE TABLE IF NOT EXISTS orders (
 
 -- Order items (many-to-many: order -> product, with captured unit price)
 CREATE TABLE IF NOT EXISTS order_items (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id SERIAL PRIMARY KEY,
     order_id INTEGER NOT NULL,
     product_id INTEGER NOT NULL,
     quantity INTEGER NOT NULL,
@@ -135,22 +139,22 @@ CREATE TABLE IF NOT EXISTS order_items (
 
 -- Payments (created alongside order at checkout)
 CREATE TABLE IF NOT EXISTS payments (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id SERIAL PRIMARY KEY,
     order_id INTEGER NOT NULL UNIQUE,
     amount REAL NOT NULL,
-    method TEXT,  -- 'card' | 'paypal' | null
-    status TEXT NOT NULL DEFAULT 'pending',  -- pending | succeeded
+    method TEXT,
+    status TEXT NOT NULL DEFAULT 'pending',
     confirmed_at TIMESTAMP,
     FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE
 );
 
 -- Shipments (created when order is fulfilled)
 CREATE TABLE IF NOT EXISTS shipments (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id SERIAL PRIMARY KEY,
     order_id INTEGER NOT NULL UNIQUE,
     tracking_number TEXT NOT NULL UNIQUE,
     carrier TEXT NOT NULL,
-    status TEXT NOT NULL DEFAULT 'in_transit',  -- in_transit | delivered
+    status TEXT NOT NULL DEFAULT 'in_transit',
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (order_id) REFERENCES orders(id)
 );
@@ -158,8 +162,8 @@ CREATE TABLE IF NOT EXISTS shipments (
 -- OAuth2 tokens (server-side cache for opaque tokens)
 CREATE TABLE IF NOT EXISTS oauth_tokens (
     token TEXT PRIMARY KEY,
-    customer_id INTEGER,  -- null if this is an admin token (no associated customer)
-    token_type TEXT NOT NULL,  -- 'customer' | 'admin'
+    customer_id INTEGER,
+    token_type TEXT NOT NULL,
     expires_at TIMESTAMP NOT NULL,
     FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE
 );
