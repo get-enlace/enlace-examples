@@ -87,9 +87,22 @@ Set `DATABASE_URL` to any Postgres instance:
 
 Schema is created automatically on startup (upsert-if-missing fixtures too).
 
+## Live Demo Instance
+
+🚀 **Live at:** https://enlace-fastapi.onrender.com/enlace/
+
+- **Canvas:** https://enlace-fastapi.onrender.com/enlace/
+- **API Docs:** https://enlace-fastapi.onrender.com/docs
+- **OpenAPI Spec:** https://enlace-fastapi.onrender.com/enlace/api/spec
+
+Fixtures seeded on startup:
+- Demo customer: `alice@example.com` / `demo-password-123`
+- Admin client: `admin-service` / `admin-service-secret`
+- Carrier API key: `carrier-demo-key`
+
 ## Reference Demo Chain
 
-See [CONTRACT.md](../../CONTRACT.md#reference-demo-chain) for the 8-step canvas workflow. In the Enlace UI:
+See [CONTRACT.md](../../CONTRACT.md#reference-demo-chain) for the complete 8-step workflow. Follow these steps in the Enlace Canvas at the live link above:
 
 1. Configure three credentials in the Credential Manager:
    - `customer`: oauth2_password, tokenUrl = `http://localhost:4000/oauth/token`, username = `alice@example.com`, password = `demo-password-123`
@@ -107,6 +120,95 @@ See [CONTRACT.md](../../CONTRACT.md#reference-demo-chain) for the 8-step canvas 
    - Step 8: `GET /shipments/{trackingNumber}` (no credential, verify final state)
 
 This demonstrates Enlace's core value: chaining across different API actors and mapping nested fields from compound responses.
+
+## Testing the Live Demo
+
+### Step 1: Open the Canvas
+
+Go to: https://enlace-fastapi.onrender.com/enlace/
+
+### Step 2: Configure Credentials (Credential Manager)
+
+1. Click **Credentials** (top-right icon or sidebar)
+2. Create three credentials:
+
+   **Credential 1 — Customer (password grant)**
+   - Name: `customer`
+   - Type: `oauth2_password`
+   - Token URL: `https://enlace-fastapi.onrender.com/oauth/token`
+   - Username: `alice@example.com`
+   - Password: `demo-password-123`
+
+   **Credential 2 — Admin (client credentials grant)**
+   - Name: `admin`
+   - Type: `oauth2_clientCredentials`
+   - Token URL: `https://enlace-fastapi.onrender.com/oauth/token`
+   - Client ID: `admin-service`
+   - Client Secret: `admin-service-secret`
+   - Client Auth Method: `body` (or `basic`)
+
+   **Credential 3 — Carrier (API key)**
+   - Name: `carrier`
+   - Type: `apiKey`
+   - Parameter Name: `X-Carrier-Api-Key`
+   - Location: `header`
+   - Key: `carrier-demo-key`
+
+### Step 3: Build the 8-Step Chain
+
+On the canvas, create nodes in this order, attaching credentials as noted:
+
+1. **GET /products** (no credential)
+   - Capture: `id` from first product
+
+2. **POST /carts** (attach `customer` credential)
+   - Capture: cart `id`
+
+3. **POST /carts/{cartId}/items** (attach `customer` credential)
+   - Path param `cartId`: map from step 2's `id`
+   - Body: `{ "productId": <from step 1>, "quantity": 1 }`
+   - Capture: nothing (or verify items array)
+
+4. **POST /carts/{cartId}/checkout** (attach `customer` credential)
+   - Path param `cartId`: map from step 2's `id`
+   - **KEY MAPPING:** Capture BOTH:
+     - `order.id` (for step 6)
+     - `payment.id` (for step 5)
+   - This is a compound response mapping!
+
+5. **POST /payments/{id}/confirm** (attach `customer` credential)
+   - Path param `id`: map from step 4's `payment.id`
+   - Body: `{ "method": "card" }`
+   - Capture: nothing (order cascaded to "paid")
+
+6. **POST /orders/{id}/fulfill** (attach `admin` credential)
+   - **Switch credential to `admin` here**
+   - Path param `id`: map from step 4's `order.id`
+   - Capture: shipment `trackingNumber`
+
+7. **PUT /shipments/{trackingNumber}/status** (attach `carrier` credential)
+   - **Switch credential to `carrier` here**
+   - Path param `trackingNumber`: map from step 6's `trackingNumber`
+   - Body: `{ "status": "delivered" }`
+
+8. **GET /shipments/{trackingNumber}** (no credential)
+   - Path param `trackingNumber`: map from step 7
+   - Verify: `status` is now `"delivered"`
+
+### Step 4: Run the Chain
+
+1. Click **Run** (play icon)
+2. Watch each step execute in sequence
+3. Each step shows request/response in the debug pane
+4. Final step shows shipment in "delivered" state ✅
+
+### Expected Outcomes
+
+- ✅ All 8 steps succeed (green)
+- ✅ Orders progress: `pending_payment` → `paid` → `shipped` → `delivered`
+- ✅ Nested mapping works (order.id and payment.id from one response)
+- ✅ Credential switches work (customer → admin → carrier)
+- ✅ Status cascade works (payment confirm cascades order to "paid", fulfill creates shipment & cascades to "shipped", delivery updates cascade to "delivered")
 
 ## Picking up a newer `enlace-fastapi`
 
