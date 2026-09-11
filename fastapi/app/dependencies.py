@@ -5,8 +5,8 @@ in the OpenAPI spec. Enlace UI auto-discovers these and shows hints for
 available credentials.
 """
 
-from fastapi import Depends, HTTPException, Security
-from fastapi.security import HTTPBearer, APIKeyHeader, HTTPAuthCredentials
+from fastapi import Depends
+from fastapi.security import HTTPBearer, APIKeyHeader, HTTPAuthorizationCredentials
 
 from .auth import verify_admin_bearer_token, verify_carrier_api_key, verify_customer_bearer_token
 from .errors import forbidden, unauthorized
@@ -21,7 +21,7 @@ api_key = APIKeyHeader(
 )
 
 
-async def get_current_customer_id(credentials: HTTPAuthCredentials = Depends(http_bearer)) -> int:
+async def get_current_customer_id(credentials: HTTPAuthorizationCredentials = Depends(http_bearer)) -> int:
     """Verify customer bearer token from Authorization header.
 
     Raises 401 if missing or invalid, 403 if it's an admin token.
@@ -35,7 +35,7 @@ async def get_current_customer_id(credentials: HTTPAuthCredentials = Depends(htt
     return customer_id
 
 
-async def get_current_admin_id(credentials: HTTPAuthCredentials = Depends(http_bearer)) -> bool:
+async def get_current_admin_id(credentials: HTTPAuthorizationCredentials = Depends(http_bearer)) -> bool:
     """Verify admin bearer token from Authorization header.
 
     Raises 401 if missing or invalid, 403 if it's a customer token.
@@ -61,7 +61,7 @@ async def get_current_carrier_key(api_key_value: str = Depends(api_key)) -> str:
     return api_key_value
 
 
-async def get_customer_or_admin(credentials: HTTPAuthCredentials | None = Depends(http_bearer)) -> dict:
+async def get_customer_or_admin(credentials: HTTPAuthorizationCredentials | None = Depends(http_bearer)) -> dict:
     """Extract customer OR admin from bearer token.
 
     Used by GET /orders which accepts either customer (scoped to own) or admin

@@ -41,12 +41,9 @@ jobs:
           python -m py_compile app/main.py app/db.py app/auth.py app/models.py app/schemas.py app/dependencies.py app/errors.py
           find app/routers -name "*.py" -exec python -m py_compile {} +
 
-      - name: Import app
+      - name: Verify imports (without runtime)
         working-directory: fastapi
-        run: python -c "from app.main import app; print('✓ App imports successfully')"
-
-      - name: Run basic startup test
-        working-directory: fastapi
-        timeout-minutes: 1
         run: |
-          timeout 5 python -m app.main || true
+          # Just check that all modules can be imported syntactically
+          # (full import test requires DATABASE_URL and a real Postgres)
+          python -c "import app.main, app.db, app.auth, app.models, app.schemas, app.dependencies, app.errors, app.routers.auth, app.routers.customers, app.routers.products, app.routers.carts, app.routers.orders, app.routers.payments, app.routers.shipments; print('✓ All modules import successfully')"
