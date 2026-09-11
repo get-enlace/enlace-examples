@@ -16,13 +16,22 @@ This guide walks through the complete 8-step reference chain that demonstrates E
 
 ## Part 1: Set Up Credentials
 
-The canvas needs three credentials configured before building the chain. This is a one-time setup.
+Enlace auto-discovers security schemes from the OpenAPI spec and shows hints for available credentials.
+
+### Auto-Discovered Schemes
+
+When you open the canvas, Enlace reads the spec and shows:
+
+- **customer_oauth** (OAuth2 password grant)
+- **admin_oauth** (OAuth2 client credentials grant)
+- **carrier_api_key** (API key in header)
 
 ### Open Credential Manager
 
 1. Go to **https://enlace-fastapi.onrender.com/enlace/**
 2. Look for the **Credentials** button (typically top-right or in sidebar)
 3. Click to open the credential manager
+4. You should see hints for the three available auth schemes
 
 ### Add Credential 1: Customer (OAuth2 Password)
 
@@ -82,8 +91,10 @@ On the canvas, create these operations in order. Data flows left-to-right or top
 **Operation:** `POST /carts`
 
 **Configuration:**
-- Credential: Select `customer`
+- Credential: Enlace will suggest `customer_oauth` (auto-discovered from spec)
 - Body: (empty, no request body needed)
+
+**Note:** Enlace shows which credential(s) this endpoint requires in a hint or badge.
 
 **Capture for next steps:**
 - Response field: `id` (the cart ID)
@@ -145,9 +156,11 @@ On the canvas, create these operations in order. Data flows left-to-right or top
 **Operation:** `POST /orders/{id}/fulfill`
 
 **Configuration:**
-- **Credential: Select `admin`** ← Switch from customer to admin
+- **Credential: Enlace will suggest `admin_oauth`** ← Enlace shows this requires admin (auto-discovered)
 - Path parameter `id`: **Map from Step 4** → select `order` → select `id`
 - Body: (empty)
+
+**Note:** This endpoint requires a different credential than the previous steps. Enlace will show a warning/hint if you try to use the wrong credential.
 
 **Capture for next steps:**
 - Response field: `trackingNumber` (the shipment tracking number)
@@ -161,7 +174,7 @@ On the canvas, create these operations in order. Data flows left-to-right or top
 **Operation:** `PUT /shipments/{trackingNumber}/status`
 
 **Configuration:**
-- **Credential: Select `carrier`** ← Switch from admin to carrier
+- **Credential: Enlace will suggest `carrier_api_key`** ← Third distinct auth actor (auto-discovered)
 - Path parameter `trackingNumber`: **Map from Step 6** → select `trackingNumber`
 - Body:
   ```json
@@ -169,6 +182,8 @@ On the canvas, create these operations in order. Data flows left-to-right or top
     "status": "delivered"
   }
   ```
+
+**Note:** This is the third different credential type in the chain. Enlace's auto-discovery makes it clear which credential each endpoint needs.
 
 **Result:**
 - Order status cascades from `shipped` → `delivered`
