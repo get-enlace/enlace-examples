@@ -14,10 +14,10 @@ class Settings:
     port: int = int(os.environ.get("PORT", "4000"))
 
     # Database: sqlite by default (zero-setup dev), or postgres via DATABASE_URL
-    # SQLite path is relative to the app root (../fastapi.db)
+    # SQLite requires aiosqlite driver for async; URL must use sqlite+aiosqlite:// scheme
     database_url: str = os.environ.get(
         "DATABASE_URL",
-        "sqlite:///./fastapi.db"  # relative to cwd where uvicorn runs
+        "sqlite+aiosqlite:///./fastapi.db"  # relative to cwd where uvicorn runs
     )
 
     # Auth fixtures (seeded on startup, all overridable)

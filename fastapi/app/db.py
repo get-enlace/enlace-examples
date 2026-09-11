@@ -36,11 +36,11 @@ async def init_db() -> None:
     """Initialize database: create tables, seed fixtures (upsert-if-missing)."""
     await database.connect()
 
-    # Create all tables from schema DDL below
-    engine = create_async_engine(settings.database_url, echo=False)
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    await engine.dispose()
+    # Create tables from raw SQL schema
+    for statement in SCHEMA_DDL.split(';'):
+        statement = statement.strip()
+        if statement:
+            await database.execute(statement)
 
     # Seed fixtures (upsert-if-missing)
     await seed_fixtures()
