@@ -16,22 +16,62 @@ This guide walks through the complete 8-step reference chain that demonstrates E
 
 ## Part 1: Set Up Credentials
 
-Enlace auto-discovers security schemes from the OpenAPI spec and shows hints for available credentials.
+Three auth schemes are declared in the OpenAPI spec. Obtain credentials using curl, then add them to Enlace.
 
-### Auto-Discovered Schemes
+### Option A: Get Credentials via curl
 
-When you open the canvas, Enlace reads the spec and shows:
+**Customer Token (Password Grant):**
+```bash
+curl -X POST https://enlace-fastapi.onrender.com/oauth/token \
+  -d "grant_type=password&username=alice@example.com&password=demo-password-123" \
+  -H "Content-Type: application/x-www-form-urlencoded"
+```
+Response: `{"accessToken": "...", "tokenType": "Bearer", "expiresIn": 3600, "scope": "customer"}`
 
-- **customer_oauth** (OAuth2 password grant)
-- **admin_oauth** (OAuth2 client credentials grant)
-- **carrier_api_key** (API key in header)
+**Admin Token (Client Credentials Grant):**
+```bash
+curl -X POST https://enlace-fastapi.onrender.com/oauth/token \
+  -d "grant_type=client_credentials&client_id=admin-service&client_secret=admin-service-secret" \
+  -H "Content-Type: application/x-www-form-urlencoded"
+```
+Response: `{"accessToken": "...", "tokenType": "Bearer", "expiresIn": 3600, "scope": "admin"}`
 
-### Open Credential Manager
+**Carrier API Key:**
+```
+carrier-demo-key
+```
+(Fixed value — see fixtures in fastapi/app/db.py)
+
+### Option B: Add Credentials to Enlace (Recommended)
+
+This lets Enlace auto-generate tokens using the OAuth2 spec:
 
 1. Go to **https://enlace-fastapi.onrender.com/enlace/**
-2. Look for the **Credentials** button (typically top-right or in sidebar)
-3. Click to open the credential manager
-4. You should see hints for the three available auth schemes
+2. Click **Credentials** (top-right or sidebar)
+3. Add three credentials:
+
+   **Customer (OAuth2 Password):**
+   - Name: `customer`
+   - Type: `oauth2_password`
+   - Token URL: `https://enlace-fastapi.onrender.com/oauth/token`
+   - Username: `alice@example.com`
+   - Password: `demo-password-123`
+
+   **Admin (OAuth2 Client Credentials):**
+   - Name: `admin`
+   - Type: `oauth2_clientCredentials`
+   - Token URL: `https://enlace-fastapi.onrender.com/oauth/token`
+   - Client ID: `admin-service`
+   - Client Secret: `admin-service-secret`
+
+   **Carrier (API Key):**
+   - Name: `carrier`
+   - Type: `apiKey`
+   - Parameter Name: `X-Carrier-Api-Key`
+   - Location: `header`
+   - Key: `carrier-demo-key`
+
+With this setup, Enlace will automatically generate tokens when you attach the credential to a node.
 
 ### Add Credential 1: Customer (OAuth2 Password)
 
