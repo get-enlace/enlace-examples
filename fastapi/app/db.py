@@ -26,6 +26,7 @@ def get_engine():
         _engine = create_engine(
             settings.database_url,
             echo=False,  # Set to True to see SQL queries
+            connect_args={"sslmode": "prefer"},
         )
     return _engine
 
