@@ -61,6 +61,7 @@ def create_product(
     db.add(product)
     db.flush()
     product_id = product.id
+    db.commit()
     return ProductSchema(id=product_id, name=req.name, price=req.price, stock=req.stock)
 
 

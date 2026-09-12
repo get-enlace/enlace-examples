@@ -1,14 +1,13 @@
-"""Database setup — SQLAlchemy ORM with async support.
+"""Database setup — SQLAlchemy ORM with synchronous sessions.
 
-Uses SQLAlchemy 2.0+ async engine and sessions. Schema is defined as DDL
-strings (no migrations), seeded with fixtures on app startup.
+Uses SQLAlchemy 2.0+ with psycopg2. Schema is defined as DDL strings
+(no migrations), seeded with fixtures on app startup.
 """
 
 from datetime import datetime
-from typing import AsyncGenerator
+from typing import Generator
 
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import declarative_base, sessionmaker
 
 from .config import settings
@@ -16,62 +15,59 @@ from .config import settings
 # ORM base — all models inherit from this
 Base = declarative_base()
 
-# Global async engine (created once, shared across app)
+# Global engine (created once, shared across app)
 _engine = None
 
 
 def get_engine():
-    """Get or create the async engine."""
+    """Get or create the synchronous engine."""
     global _engine
     if _engine is None:
-        _engine = create_async_engine(
+        _engine = create_engine(
             settings.database_url,
             echo=False,  # Set to True to see SQL queries
-            future=True,
-            connect_args={"ssl": "require"},  # For Render's PostgreSQL
         )
     return _engine
 
 
 def get_session_factory() -> sessionmaker:
-    """Return a sessionmaker for async sessions."""
+    """Return a sessionmaker for sync sessions."""
     return sessionmaker(
         get_engine(),
-        class_=AsyncSession,
         expire_on_commit=False,
         autoflush=False,
     )
 
 
-async def get_db() -> AsyncGenerator[AsyncSession, None]:
+def get_db() -> Generator:
     """Dependency: yield a database session for each request."""
-    async_session = get_session_factory()
-    async with async_session() as session:
-        try:
-            yield session
-        finally:
-            await session.close()
+    session_local = get_session_factory()
+    db = session_local()
+    try:
+        yield db
+    finally:
+        db.close()
 
 
-async def init_db() -> None:
+def init_db() -> None:
     """Initialize database: create tables, seed fixtures (upsert-if-missing)."""
-    async with get_engine().begin() as conn:
+    with get_engine().begin() as conn:
         # Create tables from PostgreSQL schema DDL
         for statement in SCHEMA_DDL.split(';'):
             statement = statement.strip()
             if statement:
-                await conn.execute(text(statement))
-        await conn.commit()
+                conn.execute(text(statement))
+        conn.commit()
 
     # Seed fixtures (upsert-if-missing)
-    await seed_fixtures()
+    seed_fixtures()
 
 
-async def close_db() -> None:
+def close_db() -> None:
     """Close the database connection."""
     global _engine
     if _engine:
-        await _engine.dispose()
+        _engine.dispose()
         _engine = None
 
 
@@ -174,24 +170,19 @@ CREATE TABLE IF NOT EXISTS oauth_tokens (
 """
 
 
-async def seed_fixtures() -> None:
-    """Seed demo fixtures (upsert-if-missing) on startup.
-
-    Uses SQLAlchemy ORM to insert data safely and type-checked.
-    """
+def seed_fixtures() -> None:
+    """Seed demo fixtures (upsert-if-missing) on startup."""
     from .auth import hash_password
     from .models import Customer, Product
 
-    async_session = get_session_factory()
+    session_local = get_session_factory()
+    db = session_local()
 
-    async with async_session() as session:
-        from sqlalchemy import select
-
+    try:
         # Demo customer (if not already present)
-        result = await session.execute(
-            select(Customer).where(Customer.email == settings.demo_customer_email)
-        )
-        existing_customer = result.scalars().first()
+        existing_customer = db.query(Customer).filter(
+            Customer.email == settings.demo_customer_email
+        ).first()
 
         if not existing_customer:
             demo_customer = Customer(
@@ -200,12 +191,11 @@ async def seed_fixtures() -> None:
                 password_hash=hash_password(settings.demo_customer_password),
                 created_at=datetime.utcnow(),
             )
-            session.add(demo_customer)
-            await session.commit()
+            db.add(demo_customer)
+            db.commit()
 
         # Demo products (if not already present)
-        result = await session.execute(select(Product))
-        existing_products = result.scalars().all()
+        existing_products = db.query(Product).all()
 
         if not existing_products:
             products = [
@@ -228,5 +218,7 @@ async def seed_fixtures() -> None:
                     created_at=datetime.utcnow(),
                 ),
             ]
-            session.add_all(products)
-            await session.commit()
+            db.add_all(products)
+            db.commit()
+    finally:
+        db.close()

@@ -38,6 +38,7 @@ def create_cart(
     db.add(cart)
     db.flush()
     cart_id = cart.id
+    db.commit()
 
     return CartSchema(
         id=cart_id,

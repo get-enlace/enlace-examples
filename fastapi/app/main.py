@@ -23,11 +23,11 @@ async def lifespan(app: FastAPI):
             "See README.md for setup instructions."
         )
     print(f"Initializing database at {settings.database_url}...")
-    await init_db()
+    init_db()
     print("Database initialized.")
     yield
     print("Closing database...")
-    await close_db()
+    close_db()
     print("Database closed.")
 
 
