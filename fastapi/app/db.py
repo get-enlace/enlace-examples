@@ -27,6 +27,8 @@ def get_engine():
             settings.database_url,
             echo=False,  # Set to True to see SQL queries
             connect_args={"sslmode": "prefer"},
+            pool_pre_ping=True,  # Validate connections before use (catches stale SSL connections)
+            pool_recycle=3600,  # Recycle connections after 1 hour (Render timeout)
         )
     return _engine
 
