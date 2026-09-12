@@ -10,41 +10,56 @@
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, status
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..db import database
+from ..db import get_db
 from ..dependencies import get_current_customer_id
 from ..errors import bad_request, conflict, not_found
-from ..schemas import Cart, CartCheckoutResponse, CartItem, CartItemRequest, ErrorResponse, Order, OrderItem, Payment
+from ..models import Cart, CartItem, Order, OrderItem, Payment, Product
+from ..schemas import (
+    Cart as CartSchema,
+    CartCheckoutResponse,
+    CartItem as CartItemSchema,
+    CartItemRequest,
+    ErrorResponse,
+    Order as OrderSchema,
+    OrderItem as OrderItemSchema,
+    Payment as PaymentSchema,
+)
 
 router = APIRouter(tags=["carts"])
 
 
 @router.post(
     "/carts",
-    response_model=Cart,
+    response_model=CartSchema,
     status_code=status.HTTP_201_CREATED,
     responses={
         401: {"model": ErrorResponse},
     },
 )
-async def create_cart(customer_id: int = Depends(get_current_customer_id)) -> Cart:
+async def create_cart(
+    customer_id: int = Depends(get_current_customer_id),
+    db: AsyncSession = Depends(get_db),
+) -> CartSchema:
     """Create an empty cart for the current customer."""
-    cart_id = await database.execute(
-        "INSERT INTO carts (customer_id, checked_out) VALUES (:customer_id, 0)",
-        values={"customer_id": customer_id},
-    )
+    cart = Cart(customer_id=customer_id, checked_out=False, created_at=datetime.utcnow())
+    db.add(cart)
+    await db.flush()  # Get the ID without committing
+    cart_id = cart.id
 
-    return Cart(
+    return CartSchema(
         id=cart_id,
-        customer_id=customer_id,
+        customerId=customer_id,
         items=[],
-        created_at=datetime.utcnow(),
+        createdAt=datetime.utcnow(),
     )
 
 
 @router.get(
     "/carts/{cart_id}",
-    response_model=Cart,
+    response_model=CartSchema,
     responses={
         401: {"model": ErrorResponse},
         404: {"model": ErrorResponse},
@@ -53,35 +68,39 @@ async def create_cart(customer_id: int = Depends(get_current_customer_id)) -> Ca
 async def get_cart(
     cart_id: int,
     customer_id: int = Depends(get_current_customer_id),
-) -> Cart:
+    db: AsyncSession = Depends(get_db),
+) -> CartSchema:
     """Get a cart and its items (customer can only see their own)."""
-    cart = await database.fetch_one(
-        "SELECT id, customer_id, created_at FROM carts WHERE id = :id",
-        values={"id": cart_id},
+    result = await db.execute(
+        select(Cart).where(Cart.id == cart_id)
     )
-    if not cart or cart["customer_id"] != customer_id:
+    cart = result.scalars().first()
+
+    if not cart or cart.customer_id != customer_id:
         raise not_found("Cart", cart_id)
 
-    items_rows = await database.fetch_all(
-        """SELECT product_id, quantity FROM cart_items
-           WHERE cart_id = :cart_id
-           ORDER BY product_id""",
-        values={"cart_id": cart_id},
+    # Get cart items
+    result = await db.execute(
+        select(CartItem).where(CartItem.cart_id == cart_id)
     )
+    items_rows = result.scalars().all()
 
-    items = [CartItem(product_id=r["product_id"], quantity=r["quantity"]) for r in items_rows]
+    items = [
+        CartItemSchema(productId=r.product_id, quantity=r.quantity)
+        for r in items_rows
+    ]
 
-    return Cart(
+    return CartSchema(
         id=cart_id,
-        customer_id=cart["customer_id"],
+        customerId=cart.customer_id,
         items=items,
-        created_at=cart["created_at"],
+        createdAt=cart.created_at,
     )
 
 
 @router.post(
     "/carts/{cart_id}/items",
-    response_model=Cart,
+    response_model=CartSchema,
     responses={
         400: {"model": ErrorResponse},
         401: {"model": ErrorResponse},
@@ -92,53 +111,53 @@ async def add_cart_item(
     cart_id: int,
     req: CartItemRequest,
     customer_id: int = Depends(get_current_customer_id),
-) -> Cart:
+    db: AsyncSession = Depends(get_db),
+) -> CartSchema:
     """Add or update an item in the cart.
 
     If the product is already in the cart, increment its quantity.
     400 if the product doesn't exist.
     """
     # Verify cart belongs to customer
-    cart = await database.fetch_one(
-        "SELECT id, customer_id FROM carts WHERE id = :id",
-        values={"id": cart_id},
+    result = await db.execute(
+        select(Cart).where(Cart.id == cart_id)
     )
-    if not cart or cart["customer_id"] != customer_id:
+    cart = result.scalars().first()
+
+    if not cart or cart.customer_id != customer_id:
         raise not_found("Cart", cart_id)
 
     # Check product exists
-    product = await database.fetch_one(
-        "SELECT id FROM products WHERE id = :id",
-        values={"id": req.product_id},
+    result = await db.execute(
+        select(Product).where(Product.id == req.product_id)
     )
+    product = result.scalars().first()
+
     if not product:
         raise bad_request(f"Product {req.product_id} not found")
 
     # Upsert cart item
-    existing = await database.fetch_one(
-        "SELECT quantity FROM cart_items WHERE cart_id = :cart_id AND product_id = :product_id",
-        values={"cart_id": cart_id, "product_id": req.product_id},
+    result = await db.execute(
+        select(CartItem).where(
+            (CartItem.cart_id == cart_id) & (CartItem.product_id == req.product_id)
+        )
     )
+    existing = result.scalars().first()
 
     if existing:
-        await database.execute(
-            """UPDATE cart_items SET quantity = quantity + :qty
-               WHERE cart_id = :cart_id AND product_id = :product_id""",
-            values={"qty": req.quantity, "cart_id": cart_id, "product_id": req.product_id},
-        )
+        existing.quantity += req.quantity
     else:
-        await database.execute(
-            """INSERT INTO cart_items (cart_id, product_id, quantity)
-               VALUES (:cart_id, :product_id, :quantity)""",
-            values={
-                "cart_id": cart_id,
-                "product_id": req.product_id,
-                "quantity": req.quantity,
-            },
+        cart_item = CartItem(
+            cart_id=cart_id,
+            product_id=req.product_id,
+            quantity=req.quantity,
         )
+        db.add(cart_item)
+
+    await db.commit()
 
     # Return updated cart
-    return await get_cart(cart_id, customer_id)
+    return await get_cart(cart_id, customer_id, db)
 
 
 @router.delete(
@@ -153,21 +172,29 @@ async def remove_cart_item(
     cart_id: int,
     product_id: int,
     customer_id: int = Depends(get_current_customer_id),
+    db: AsyncSession = Depends(get_db),
 ) -> None:
     """Remove an item from the cart."""
     # Verify cart belongs to customer
-    cart = await database.fetch_one(
-        "SELECT id, customer_id FROM carts WHERE id = :id",
-        values={"id": cart_id},
+    result = await db.execute(
+        select(Cart).where(Cart.id == cart_id)
     )
-    if not cart or cart["customer_id"] != customer_id:
+    cart = result.scalars().first()
+
+    if not cart or cart.customer_id != customer_id:
         raise not_found("Cart", cart_id)
 
-    await database.execute(
-        """DELETE FROM cart_items
-           WHERE cart_id = :cart_id AND product_id = :product_id""",
-        values={"cart_id": cart_id, "product_id": product_id},
+    # Delete the cart item
+    result = await db.execute(
+        select(CartItem).where(
+            (CartItem.cart_id == cart_id) & (CartItem.product_id == product_id)
+        )
     )
+    cart_item = result.scalars().first()
+
+    if cart_item:
+        await db.delete(cart_item)
+        await db.commit()
 
 
 @router.post(
@@ -184,6 +211,7 @@ async def remove_cart_item(
 async def checkout_cart(
     cart_id: int,
     customer_id: int = Depends(get_current_customer_id),
+    db: AsyncSession = Depends(get_db),
 ) -> CartCheckoutResponse:
     """Checkout: create an Order and Payment from cart items.
 
@@ -192,21 +220,22 @@ async def checkout_cart(
     409 if cart was already checked out.
     """
     # Verify cart belongs to customer
-    cart = await database.fetch_one(
-        "SELECT id, customer_id, checked_out FROM carts WHERE id = :id",
-        values={"id": cart_id},
+    result = await db.execute(
+        select(Cart).where(Cart.id == cart_id)
     )
-    if not cart or cart["customer_id"] != customer_id:
+    cart = result.scalars().first()
+
+    if not cart or cart.customer_id != customer_id:
         raise not_found("Cart", cart_id)
 
-    if cart["checked_out"]:
+    if cart.checked_out:
         raise conflict("Cart already checked out")
 
     # Get cart items
-    items_rows = await database.fetch_all(
-        "SELECT product_id, quantity FROM cart_items WHERE cart_id = :cart_id",
-        values={"cart_id": cart_id},
+    result = await db.execute(
+        select(CartItem).where(CartItem.cart_id == cart_id)
     )
+    items_rows = result.scalars().all()
 
     if not items_rows:
         raise bad_request("Cannot checkout an empty cart")
@@ -216,88 +245,84 @@ async def checkout_cart(
     order_items_to_insert = []
 
     for item in items_rows:
-        product = await database.fetch_one(
-            "SELECT price FROM products WHERE id = :id",
-            values={"id": item["product_id"]},
+        result = await db.execute(
+            select(Product).where(Product.id == item.product_id)
         )
-        if not product:
-            raise bad_request(f"Product {item['product_id']} not found")
+        product = result.scalars().first()
 
-        unit_price = product["price"]
-        item_total = unit_price * item["quantity"]
+        if not product:
+            raise bad_request(f"Product {item.product_id} not found")
+
+        unit_price = product.price
+        item_total = unit_price * item.quantity
         order_total += item_total
 
         order_items_to_insert.append({
-            "product_id": item["product_id"],
-            "quantity": item["quantity"],
+            "product_id": item.product_id,
+            "quantity": item.quantity,
             "unit_price": unit_price,
         })
 
     # Create order
-    order_id = await database.execute(
-        """INSERT INTO orders (customer_id, cart_id, status, total)
-           VALUES (:customer_id, :cart_id, 'pending_payment', :total)""",
-        values={
-            "customer_id": customer_id,
-            "cart_id": cart_id,
-            "total": order_total,
-        },
-    )
-
-    # Create order items
-    for item in order_items_to_insert:
-        await database.execute(
-            """INSERT INTO order_items (order_id, product_id, quantity, unit_price)
-               VALUES (:order_id, :product_id, :quantity, :unit_price)""",
-            values={
-                "order_id": order_id,
-                "product_id": item["product_id"],
-                "quantity": item["quantity"],
-                "unit_price": item["unit_price"],
-            },
-        )
-
-    # Create payment
-    payment_id = await database.execute(
-        """INSERT INTO payments (order_id, amount, status)
-           VALUES (:order_id, :amount, 'pending')""",
-        values={
-            "order_id": order_id,
-            "amount": order_total,
-        },
-    )
-
-    # Mark cart as checked out
-    await database.execute(
-        "UPDATE carts SET checked_out = 1 WHERE id = :id",
-        values={"id": cart_id},
-    )
-
-    # Build response
-    order_obj = Order(
-        id=order_id,
+    order = Order(
         customer_id=customer_id,
         cart_id=cart_id,
         status="pending_payment",
+        total=order_total,
+        created_at=datetime.utcnow(),
+    )
+    db.add(order)
+    await db.flush()  # Get the order ID
+    order_id = order.id
+
+    # Create order items
+    for item in order_items_to_insert:
+        order_item = OrderItem(
+            order_id=order_id,
+            product_id=item["product_id"],
+            quantity=item["quantity"],
+            unit_price=item["unit_price"],
+        )
+        db.add(order_item)
+
+    # Create payment
+    payment = Payment(
+        order_id=order_id,
+        amount=order_total,
+        status="pending",
+    )
+    db.add(payment)
+
+    # Mark cart as checked out
+    cart.checked_out = True
+
+    await db.commit()
+
+    # Build response
+    order_obj = OrderSchema(
+        id=order_id,
+        customerId=customer_id,
+        cartId=cart_id,
+        status="pending_payment",
         items=[
-            OrderItem(
-                product_id=item["product_id"],
+            OrderItemSchema(
+                productId=item["product_id"],
                 quantity=item["quantity"],
-                unit_price=item["unit_price"],
+                unitPrice=item["unit_price"],
             )
             for item in order_items_to_insert
         ],
         total=order_total,
-        created_at=datetime.utcnow(),
+        createdAt=datetime.utcnow(),
     )
 
-    payment_obj = Payment(
-        id=payment_id,
-        order_id=order_id,
+    payment_obj = PaymentSchema(
+        id=payment.id,
+        orderId=order_id,
         amount=order_total,
         method=None,
         status="pending",
-        confirmed_at=None,
+        confirmedAt=None,
     )
 
     return CartCheckoutResponse(order=order_obj, payment=payment_obj)

@@ -113,3 +113,12 @@ class Shipment(Base):
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
     order = relationship("Order", back_populates="shipment")
+
+
+class OAuthToken(Base):
+    __tablename__ = "oauth_tokens"
+
+    token = Column(String(255), primary_key=True)
+    customer_id = Column(Integer, ForeignKey("customers.id", ondelete="CASCADE"))
+    token_type = Column(String(50), nullable=False)  # 'customer' or 'admin'
+    expires_at = Column(DateTime, nullable=False)

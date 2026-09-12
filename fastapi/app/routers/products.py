@@ -1,49 +1,45 @@
-"""Product resource endpoints.
+"""Product resource endpoints - using SQLAlchemy ORM."""
 
-- GET /products (public) — all products
-- GET /products/{id} (public) — one product
-- POST /products (admin only) — create a product
-- PUT /products/{id} (admin only) — update a product
-- DELETE /products/{id} (admin only) — delete a product
-"""
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, status
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..db import database
+from ..db import get_db
 from ..dependencies import get_current_admin_id
 from ..errors import not_found
-from ..schemas import ErrorResponse, Product, ProductRequest
+from ..models import Product
+from ..schemas import ErrorResponse, Product as ProductSchema
+from ..schemas import ProductRequest
 
 router = APIRouter(tags=["products"])
 
 
-@router.get("/products", response_model=list[Product])
-async def list_products() -> list[Product]:
+@router.get("/products", response_model=list[ProductSchema])
+async def list_products(db: AsyncSession = Depends(get_db)) -> list[ProductSchema]:
     """List all products (public)."""
-    rows = await database.fetch_all(
-        "SELECT id, name, price, stock FROM products ORDER BY id"
-    )
+    result = await db.execute(select(Product).order_by(Product.id))
+    products = result.scalars().all()
     return [
-        Product(id=r["id"], name=r["name"], price=r["price"], stock=r["stock"])
-        for r in rows
+        ProductSchema(id=p.id, name=p.name, price=p.price, stock=p.stock)
+        for p in products
     ]
 
 
-@router.get("/products/{id}", response_model=Product)
-async def get_product(id: int) -> Product:
+@router.get("/products/{id}", response_model=ProductSchema)
+async def get_product(id: int, db: AsyncSession = Depends(get_db)) -> ProductSchema:
     """Get a specific product (public)."""
-    row = await database.fetch_one(
-        "SELECT id, name, price, stock FROM products WHERE id = :id",
-        values={"id": id},
-    )
-    if not row:
+    result = await db.execute(select(Product).where(Product.id == id))
+    product = result.scalars().first()
+    if not product:
         raise not_found("Product", id)
-    return Product(id=row["id"], name=row["name"], price=row["price"], stock=row["stock"])
+    return ProductSchema(id=product.id, name=product.name, price=product.price, stock=product.stock)
 
 
 @router.post(
     "/products",
-    response_model=Product,
+    response_model=ProductSchema,
     status_code=status.HTTP_201_CREATED,
     responses={
         401: {"model": ErrorResponse},
@@ -53,23 +49,24 @@ async def get_product(id: int) -> Product:
 async def create_product(
     req: ProductRequest,
     _admin: bool = Depends(get_current_admin_id),
-) -> Product:
+    db: AsyncSession = Depends(get_db),
+) -> ProductSchema:
     """Create a product (admin only)."""
-    product_id = await database.execute(
-        """INSERT INTO products (name, price, stock)
-           VALUES (:name, :price, :stock)""",
-        values={
-            "name": req.name,
-            "price": req.price,
-            "stock": req.stock,
-        },
+    product = Product(
+        name=req.name,
+        price=req.price,
+        stock=req.stock,
+        created_at=datetime.utcnow(),
     )
-    return Product(id=product_id, name=req.name, price=req.price, stock=req.stock)
+    db.add(product)
+    await db.flush()
+    product_id = product.id
+    return ProductSchema(id=product_id, name=req.name, price=req.price, stock=req.stock)
 
 
 @router.put(
     "/products/{id}",
-    response_model=Product,
+    response_model=ProductSchema,
     responses={
         401: {"model": ErrorResponse},
         403: {"model": ErrorResponse},
@@ -80,27 +77,21 @@ async def update_product(
     id: int,
     req: ProductRequest,
     _admin: bool = Depends(get_current_admin_id),
-) -> Product:
+    db: AsyncSession = Depends(get_db),
+) -> ProductSchema:
     """Update a product (admin only)."""
-    existing = await database.fetch_one(
-        "SELECT id FROM products WHERE id = :id",
-        values={"id": id},
-    )
-    if not existing:
+    result = await db.execute(select(Product).where(Product.id == id))
+    product = result.scalars().first()
+    if not product:
         raise not_found("Product", id)
 
-    await database.execute(
-        """UPDATE products SET name = :name, price = :price, stock = :stock
-           WHERE id = :id""",
-        values={
-            "name": req.name,
-            "price": req.price,
-            "stock": req.stock,
-            "id": id,
-        },
-    )
+    product.name = req.name
+    product.price = req.price
+    product.stock = req.stock
 
-    return Product(id=id, name=req.name, price=req.price, stock=req.stock)
+    await db.commit()
+
+    return ProductSchema(id=product.id, name=product.name, price=product.price, stock=product.stock)
 
 
 @router.delete(
@@ -115,16 +106,13 @@ async def update_product(
 async def delete_product(
     id: int,
     _admin: bool = Depends(get_current_admin_id),
+    db: AsyncSession = Depends(get_db),
 ) -> None:
     """Delete a product (admin only)."""
-    existing = await database.fetch_one(
-        "SELECT id FROM products WHERE id = :id",
-        values={"id": id},
-    )
-    if not existing:
+    result = await db.execute(select(Product).where(Product.id == id))
+    product = result.scalars().first()
+    if not product:
         raise not_found("Product", id)
 
-    await database.execute(
-        "DELETE FROM products WHERE id = :id",
-        values={"id": id},
-    )
+    await db.delete(product)
+    await db.commit()

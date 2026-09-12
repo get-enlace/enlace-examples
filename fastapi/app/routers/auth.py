@@ -7,32 +7,34 @@
   calls it directly.
 """
 
-from fastapi import APIRouter, Form, HTTPException, status
-from pydantic import EmailStr
+from fastapi import APIRouter, Depends, Form, HTTPException, status
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..auth import (
     hash_password,
     mint_token,
-    verify_admin_bearer_token,
     verify_password,
 )
 from ..config import settings
-from ..db import database
+from ..db import get_db
 from ..errors import bad_request, unauthorized
-from ..schemas import Customer, ErrorResponse, LoginRequest, RegisterRequest, TokenResponse
+from ..models import Customer
+from ..schemas import Customer as CustomerSchema
+from ..schemas import ErrorResponse, LoginRequest, RegisterRequest, TokenResponse
 
 router = APIRouter()
 
 
 @router.post(
     "/auth/register",
-    response_model=Customer,
+    response_model=CustomerSchema,
     status_code=status.HTTP_201_CREATED,
     responses={
         400: {"model": ErrorResponse, "description": "Email already registered"},
     },
 )
-async def register(req: RegisterRequest) -> Customer:
+async def register(req: RegisterRequest, db: AsyncSession = Depends(get_db)) -> CustomerSchema:
     """Register a new customer.
 
     POST /auth/register
@@ -40,27 +42,26 @@ async def register(req: RegisterRequest) -> Customer:
     -> 201 Customer
     """
     # Check if email already exists
-    existing = await database.fetch_one(
-        "SELECT id FROM customers WHERE email = :email",
-        values={"email": req.email},
+    result = await db.execute(
+        select(Customer).where(Customer.email == req.email)
     )
+    existing = result.scalars().first()
+
     if existing:
         raise bad_request(f"Email {req.email} is already registered")
 
-    # Insert new customer
+    # Create new customer
     password_hash = hash_password(req.password)
-    customer_id = await database.execute(
-        """INSERT INTO customers (email, name, password_hash)
-           VALUES (:email, :name, :password_hash)
-           RETURNING id""",
-        values={
-            "email": req.email,
-            "name": req.name,
-            "password_hash": password_hash,
-        },
+    customer = Customer(
+        email=req.email,
+        name=req.name,
+        password_hash=password_hash,
     )
+    db.add(customer)
+    await db.flush()  # Get the ID without committing
+    customer_id = customer.id
 
-    return Customer(id=customer_id, email=req.email, name=req.name)
+    return CustomerSchema(id=customer_id, email=req.email, name=req.name)
 
 
 @router.post(
@@ -78,6 +79,7 @@ async def token(
     client_id: str | None = Form(None),
     client_secret: str | None = Form(None),
     scope: str | None = Form(None),
+    db: AsyncSession = Depends(get_db),
 ) -> TokenResponse:
     """RFC 6749 OAuth2 token endpoint — handles password and client_credentials grants.
 
@@ -95,14 +97,15 @@ async def token(
         if not username or not password:
             raise bad_request("Missing username or password")
 
-        customer = await database.fetch_one(
-            "SELECT id, password_hash FROM customers WHERE email = :email",
-            values={"email": username},
+        result = await db.execute(
+            select(Customer).where(Customer.email == username)
         )
-        if not customer or not verify_password(password, customer["password_hash"]):
+        customer = result.scalars().first()
+
+        if not customer or not verify_password(password, customer.password_hash):
             raise unauthorized("Invalid credentials")
 
-        token = await mint_token(customer["id"], "customer")
+        token = await mint_token(customer.id, "customer")
         return TokenResponse(
             access_token=token,
             token_type="Bearer",

@@ -9,7 +9,7 @@ from enlace_fastapi import enlace
 from fastapi import FastAPI
 
 from .config import settings
-from .db import close_db, database, init_db
+from .db import close_db, init_db
 from .errors import register_error_handlers
 from .routers import auth, carts, customers, orders, payments, products, shipments
 

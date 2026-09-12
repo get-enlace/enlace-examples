@@ -1,137 +1,119 @@
-"""Order resource endpoints.
+"""Order resource endpoints - using SQLAlchemy ORM."""
 
-- GET /orders (customer or admin) — customer sees own only, admin sees all
-- GET /orders/{id} (customer or admin) — customer can only see own, admin sees any
-- POST /orders/{id}/cancel (customer) — cancel an order (only from pending_payment)
-- POST /orders/{id}/fulfill (admin) — fulfill order, create shipment (only from paid)
-"""
-
+import hashlib
+import time
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, status
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..db import database
+from ..db import get_db
 from ..dependencies import get_current_admin_id, get_current_customer_id, get_customer_or_admin
 from ..errors import conflict, not_found
-from ..schemas import ErrorResponse, Order, OrderItem, Shipment
+from ..models import Order, OrderItem as OrderItemModel, Shipment
+from ..schemas import ErrorResponse, Order as OrderSchema
+from ..schemas import OrderItem, Shipment as ShipmentSchema
 
 router = APIRouter(tags=["orders"])
 
 
+async def _fetch_order_with_items(
+    order: Order, db: AsyncSession
+) -> OrderSchema:
+    """Helper to fetch an order with its items."""
+    result = await db.execute(
+        select(OrderItemModel).where(OrderItemModel.order_id == order.id)
+    )
+    items_rows = result.scalars().all()
+
+    items = [
+        OrderItem(
+            productId=r.product_id,
+            quantity=r.quantity,
+            unitPrice=r.unit_price,
+        )
+        for r in items_rows
+    ]
+
+    return OrderSchema(
+        id=order.id,
+        customerId=order.customer_id,
+        cartId=order.cart_id,
+        status=order.status,
+        items=items,
+        total=order.total,
+        createdAt=order.created_at,
+    )
+
+
 @router.get(
     "/orders",
-    response_model=list[Order],
+    response_model=list[OrderSchema],
     responses={
         401: {"model": ErrorResponse},
     },
 )
-async def list_orders(actor: dict = Depends(get_customer_or_admin)) -> list[Order]:
+async def list_orders(
+    actor: dict = Depends(get_customer_or_admin),
+    db: AsyncSession = Depends(get_db),
+) -> list[OrderSchema]:
     """List orders.
 
     Customer credential: sees only their own orders.
     Admin credential: sees all orders.
     """
     if actor["type"] == "customer":
-        query = """SELECT id, customer_id, cart_id, status, total, created_at
-                   FROM orders
-                   WHERE customer_id = :customer_id
-                   ORDER BY id"""
-        orders_rows = await database.fetch_all(query, values={"customer_id": actor["id"]})
+        result = await db.execute(
+            select(Order).where(Order.customer_id == actor["id"]).order_by(Order.id)
+        )
     else:
-        query = """SELECT id, customer_id, cart_id, status, total, created_at
-                   FROM orders
-                   ORDER BY id"""
-        orders_rows = await database.fetch_all(query)
+        result = await db.execute(select(Order).order_by(Order.id))
+
+    orders_rows = result.scalars().all()
 
     orders = []
-    for order_row in orders_rows:
-        items_rows = await database.fetch_all(
-            """SELECT product_id, quantity, unit_price FROM order_items
-               WHERE order_id = :order_id
-               ORDER BY product_id""",
-            values={"order_id": order_row["id"]},
-        )
-        items = [
-            OrderItem(
-                product_id=r["product_id"],
-                quantity=r["quantity"],
-                unit_price=r["unit_price"],
-            )
-            for r in items_rows
-        ]
-        orders.append(
-            Order(
-                id=order_row["id"],
-                customer_id=order_row["customer_id"],
-                cart_id=order_row["cart_id"],
-                status=order_row["status"],
-                items=items,
-                total=order_row["total"],
-                created_at=order_row["created_at"],
-            )
-        )
+    for order in orders_rows:
+        order_schema = await _fetch_order_with_items(order, db)
+        orders.append(order_schema)
 
     return orders
 
 
 @router.get(
     "/orders/{id}",
-    response_model=Order,
+    response_model=OrderSchema,
     responses={
         401: {"model": ErrorResponse},
         404: {"model": ErrorResponse},
     },
 )
-async def get_order(id: int, actor: dict = Depends(get_customer_or_admin)) -> Order:
+async def get_order(
+    id: int,
+    actor: dict = Depends(get_customer_or_admin),
+    db: AsyncSession = Depends(get_db),
+) -> OrderSchema:
     """Get an order.
 
     Customer credential: can only see their own (404 if not theirs).
     Admin credential: can see any.
     """
-    order_row = await database.fetch_one(
-        """SELECT id, customer_id, cart_id, status, total, created_at
-           FROM orders
-           WHERE id = :id""",
-        values={"id": id},
-    )
+    result = await db.execute(select(Order).where(Order.id == id))
+    order = result.scalars().first()
 
-    if not order_row:
+    if not order:
         raise not_found("Order", id)
 
     # Authorization check
-    if actor["type"] == "customer" and order_row["customer_id"] != actor["id"]:
+    if actor["type"] == "customer" and order.customer_id != actor["id"]:
         raise not_found("Order", id)
 
-    items_rows = await database.fetch_all(
-        """SELECT product_id, quantity, unit_price FROM order_items
-           WHERE order_id = :order_id
-           ORDER BY product_id""",
-        values={"order_id": id},
-    )
-
-    items = [
-        OrderItem(
-            product_id=r["product_id"],
-            quantity=r["quantity"],
-            unit_price=r["unit_price"],
-        )
-        for r in items_rows
-    ]
-
-    return Order(
-        id=order_row["id"],
-        customer_id=order_row["customer_id"],
-        cart_id=order_row["cart_id"],
-        status=order_row["status"],
-        items=items,
-        total=order_row["total"],
-        created_at=order_row["created_at"],
-    )
+    return await _fetch_order_with_items(order, db)
 
 
 @router.post(
     "/orders/{id}/cancel",
-    response_model=Order,
+    response_model=OrderSchema,
     responses={
         401: {"model": ErrorResponse},
         404: {"model": ErrorResponse},
@@ -141,35 +123,32 @@ async def get_order(id: int, actor: dict = Depends(get_customer_or_admin)) -> Or
 async def cancel_order(
     id: int,
     customer_id: int = Depends(get_current_customer_id),
-) -> Order:
+    db: AsyncSession = Depends(get_db),
+) -> OrderSchema:
     """Cancel an order (customer only).
 
     Only works if order status is 'pending_payment'. Cascades order to 'cancelled'.
     """
-    order_row = await database.fetch_one(
-        "SELECT id, status, customer_id FROM orders WHERE id = :id",
-        values={"id": id},
-    )
+    result = await db.execute(select(Order).where(Order.id == id))
+    order = result.scalars().first()
 
-    if not order_row or order_row["customer_id"] != customer_id:
+    if not order or order.customer_id != customer_id:
         raise not_found("Order", id)
 
-    if order_row["status"] != "pending_payment":
-        raise conflict(f"Cannot cancel an order in '{order_row['status']}' status (must be 'pending_payment')")
+    if order.status != "pending_payment":
+        raise conflict(f"Cannot cancel an order in '{order.status}' status (must be 'pending_payment')")
 
     # Cascade order to 'cancelled'
-    await database.execute(
-        "UPDATE orders SET status = 'cancelled' WHERE id = :id",
-        values={"id": id},
-    )
+    order.status = "cancelled"
+    await db.commit()
 
     # Return updated order
-    return await get_order(id, {"type": "customer", "id": customer_id})
+    return await get_order(id, {"type": "customer", "id": customer_id}, db)
 
 
 @router.post(
     "/orders/{id}/fulfill",
-    response_model=Shipment,
+    response_model=ShipmentSchema,
     status_code=status.HTTP_201_CREATED,
     responses={
         401: {"model": ErrorResponse},
@@ -181,50 +160,46 @@ async def cancel_order(
 async def fulfill_order(
     id: int,
     _admin: bool = Depends(get_current_admin_id),
-) -> Shipment:
+    db: AsyncSession = Depends(get_db),
+) -> ShipmentSchema:
     """Fulfill an order and create a shipment (admin only).
 
     Only works if order status is 'paid'.
     Creates a shipment with a generated tracking number and cascades order to 'shipped'.
     """
-    order = await database.fetch_one(
-        "SELECT id, status FROM orders WHERE id = :id",
-        values={"id": id},
-    )
+    result = await db.execute(select(Order).where(Order.id == id))
+    order = result.scalars().first()
 
     if not order:
         raise not_found("Order", id)
 
-    if order["status"] != "paid":
-        raise conflict(f"Cannot fulfill an order in '{order['status']}' status (must be 'paid')")
+    if order.status != "paid":
+        raise conflict(f"Cannot fulfill an order in '{order.status}' status (must be 'paid')")
 
     # Generate tracking number (simple format: TRK-<timestamp-based>)
-    import hashlib
-    import time
-
     tracking = f"TRK-{hashlib.md5(f'{id}-{int(time.time())}'.encode()).hexdigest()[:8].upper()}"
 
     # Create shipment
-    shipment_id = await database.execute(
-        """INSERT INTO shipments (order_id, tracking_number, carrier, status)
-           VALUES (:order_id, :tracking_number, 'DemoShip Express', 'in_transit')""",
-        values={
-            "order_id": id,
-            "tracking_number": tracking,
-        },
-    )
-
-    # Cascade order to 'shipped'
-    await database.execute(
-        "UPDATE orders SET status = 'shipped' WHERE id = :id",
-        values={"id": id},
-    )
-
-    return Shipment(
-        id=shipment_id,
+    shipment = Shipment(
         order_id=id,
         tracking_number=tracking,
         carrier="DemoShip Express",
         status="in_transit",
         created_at=datetime.utcnow(),
+    )
+    db.add(shipment)
+
+    # Cascade order to 'shipped'
+    order.status = "shipped"
+
+    await db.commit()
+    await db.refresh(shipment)
+
+    return ShipmentSchema(
+        id=shipment.id,
+        orderId=id,
+        trackingNumber=tracking,
+        carrier="DemoShip Express",
+        status="in_transit",
+        createdAt=datetime.utcnow(),
     )

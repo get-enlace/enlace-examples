@@ -1,25 +1,13 @@
-"""Database setup — SQLAlchemy ORM + async databases for query execution.
+"""Database setup — SQLAlchemy ORM with async support.
 
-Schema is defined as DDL strings here (no migrations), seeded with fixtures
-on app startup. Async-only: SQLAlchemy's new async API (sessionmaker +
-AsyncSession) + databases for lower-level async execute().
+Uses SQLAlchemy 2.0+ async engine and sessions. Schema is defined as DDL
+strings (no migrations), seeded with fixtures on app startup.
 """
 
 from datetime import datetime
 from typing import AsyncGenerator
 
-from databases import Database
-from sqlalchemy import (
-    JSON,
-    Column,
-    DateTime,
-    Float,
-    ForeignKey,
-    Integer,
-    String,
-    Text,
-    create_engine,
-)
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
 
@@ -28,33 +16,30 @@ from .config import settings
 # ORM base — all models inherit from this
 Base = declarative_base()
 
-# Async database connection (used for migrations, seeding, and in routes via dependency)
-database = Database(settings.database_url)
+# Global async engine (created once, shared across app)
+_engine = None
 
 
-async def init_db() -> None:
-    """Initialize database: create tables, seed fixtures (upsert-if-missing)."""
-    await database.connect()
-
-    # Create tables from PostgreSQL schema DDL
-    for statement in SCHEMA_DDL.split(';'):
-        statement = statement.strip()
-        if statement:
-            await database.execute(statement)
-
-    # Seed fixtures (upsert-if-missing)
-    await seed_fixtures()
-
-
-async def close_db() -> None:
-    """Close the database connection."""
-    await database.disconnect()
+def get_engine():
+    """Get or create the async engine."""
+    global _engine
+    if _engine is None:
+        _engine = create_async_engine(
+            settings.database_url,
+            echo=False,  # Set to True to see SQL queries
+            future=True,
+        )
+    return _engine
 
 
 def get_session_factory() -> sessionmaker:
-    """Return a sessionmaker bound to the async engine."""
-    engine = create_async_engine(settings.database_url, echo=False)
-    return sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    """Return a sessionmaker for async sessions."""
+    return sessionmaker(
+        get_engine(),
+        class_=AsyncSession,
+        expire_on_commit=False,
+        autoflush=False,
+    )
 
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
@@ -67,12 +52,30 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
             await session.close()
 
 
-# =============================================================================
-# Schema DDL (no migrations, just raw SQL executed on startup)
-# =============================================================================
+async def init_db() -> None:
+    """Initialize database: create tables, seed fixtures (upsert-if-missing)."""
+    async with get_engine().begin() as conn:
+        # Create tables from PostgreSQL schema DDL
+        for statement in SCHEMA_DDL.split(';'):
+            statement = statement.strip()
+            if statement:
+                await conn.execute(text(statement))
+        await conn.commit()
+
+    # Seed fixtures (upsert-if-missing)
+    await seed_fixtures()
+
+
+async def close_db() -> None:
+    """Close the database connection."""
+    global _engine
+    if _engine:
+        await _engine.dispose()
+        _engine = None
+
 
 # =============================================================================
-# PostgreSQL Schema DDL (production uses Postgres/Neon)
+# PostgreSQL Schema DDL (no migrations, just raw SQL executed on startup)
 # =============================================================================
 
 SCHEMA_DDL = """
@@ -173,52 +176,56 @@ CREATE TABLE IF NOT EXISTS oauth_tokens (
 async def seed_fixtures() -> None:
     """Seed demo fixtures (upsert-if-missing) on startup.
 
-    Import here to avoid circular imports (models need settings, auth needs models).
+    Uses SQLAlchemy ORM to insert data safely and type-checked.
     """
     from .auth import hash_password
-    from .models import Customer
+    from .models import Customer, Product
 
-    # Demo customer (if not already present)
-    existing_customer = await database.fetch_one(
-        "SELECT id FROM customers WHERE email = :email",
-        values={"email": settings.demo_customer_email},
-    )
-    if not existing_customer:
-        await database.execute(
-            """INSERT INTO customers (email, name, password_hash, created_at)
-               VALUES (:email, :name, :password_hash, :created_at)""",
-            values={
-                "email": settings.demo_customer_email,
-                "name": "Demo Customer",
-                "password_hash": hash_password(settings.demo_customer_password),
-                "created_at": datetime.utcnow(),
-            },
-        )
+    async_session = get_session_factory()
 
-    # Demo products (if not already present)
-    existing_products = await database.fetch_all("SELECT id FROM products")
-    if not existing_products:
-        await database.execute_many(
-            """INSERT INTO products (name, price, stock, created_at)
-               VALUES (:name, :price, :stock, :created_at)""",
-            [
-                {
-                    "name": "Mechanical Keyboard",
-                    "price": 129.99,
-                    "stock": 42,
-                    "created_at": datetime.utcnow(),
-                },
-                {
-                    "name": "Wireless Mouse",
-                    "price": 59.99,
-                    "stock": 100,
-                    "created_at": datetime.utcnow(),
-                },
-                {
-                    "name": "USB-C Hub",
-                    "price": 49.99,
-                    "stock": 75,
-                    "created_at": datetime.utcnow(),
-                },
-            ],
+    async with async_session() as session:
+        from sqlalchemy import select
+
+        # Demo customer (if not already present)
+        result = await session.execute(
+            select(Customer).where(Customer.email == settings.demo_customer_email)
         )
+        existing_customer = result.scalars().first()
+
+        if not existing_customer:
+            demo_customer = Customer(
+                email=settings.demo_customer_email,
+                name="Demo Customer",
+                password_hash=hash_password(settings.demo_customer_password),
+                created_at=datetime.utcnow(),
+            )
+            session.add(demo_customer)
+            await session.commit()
+
+        # Demo products (if not already present)
+        result = await session.execute(select(Product))
+        existing_products = result.scalars().all()
+
+        if not existing_products:
+            products = [
+                Product(
+                    name="Mechanical Keyboard",
+                    price=129.99,
+                    stock=42,
+                    created_at=datetime.utcnow(),
+                ),
+                Product(
+                    name="Wireless Mouse",
+                    price=59.99,
+                    stock=100,
+                    created_at=datetime.utcnow(),
+                ),
+                Product(
+                    name="USB-C Hub",
+                    price=49.99,
+                    stock=75,
+                    created_at=datetime.utcnow(),
+                ),
+            ]
+            session.add_all(products)
+            await session.commit()

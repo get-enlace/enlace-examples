@@ -1,76 +1,81 @@
-"""Customer resource endpoints.
-
-- GET /customers (admin only) — all customers
-- GET /customers/{id} (admin only) — one customer
-- GET /customers/me (customer) — current customer's own profile
-- PUT /customers/me (customer) — update current customer's name/email
-"""
+"""Customer resource endpoints - using SQLAlchemy ORM."""
 
 from fastapi import APIRouter, Depends, status
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..db import database
+from ..db import get_db
 from ..dependencies import get_current_admin_id, get_current_customer_id
 from ..errors import not_found
-from ..schemas import Customer, CustomerMeUpdate, ErrorResponse
+from ..models import Customer
+from ..schemas import Customer as CustomerSchema
+from ..schemas import CustomerMeUpdate, ErrorResponse
 
 router = APIRouter(tags=["customers"])
 
 
 @router.get(
     "/customers",
-    response_model=list[Customer],
+    response_model=list[CustomerSchema],
     responses={
         401: {"model": ErrorResponse},
         403: {"model": ErrorResponse},
     },
 )
-async def list_customers(_admin: bool = Depends(get_current_admin_id)) -> list[Customer]:
+async def list_customers(
+    _admin: bool = Depends(get_current_admin_id),
+    db: AsyncSession = Depends(get_db),
+) -> list[CustomerSchema]:
     """List all customers (admin only)."""
-    rows = await database.fetch_all("SELECT id, email, name FROM customers ORDER BY id")
-    return [Customer(id=r["id"], email=r["email"], name=r["name"]) for r in rows]
+    result = await db.execute(select(Customer).order_by(Customer.id))
+    customers = result.scalars().all()
+    return [CustomerSchema(id=c.id, email=c.email, name=c.name) for c in customers]
 
 
 @router.get(
     "/customers/{id}",
-    response_model=Customer,
+    response_model=CustomerSchema,
     responses={
         401: {"model": ErrorResponse},
         403: {"model": ErrorResponse},
         404: {"model": ErrorResponse},
     },
 )
-async def get_customer(id: int, _admin: bool = Depends(get_current_admin_id)) -> Customer:
+async def get_customer(
+    id: int,
+    _admin: bool = Depends(get_current_admin_id),
+    db: AsyncSession = Depends(get_db),
+) -> CustomerSchema:
     """Get a specific customer (admin only)."""
-    row = await database.fetch_one(
-        "SELECT id, email, name FROM customers WHERE id = :id",
-        values={"id": id},
-    )
-    if not row:
+    result = await db.execute(select(Customer).where(Customer.id == id))
+    customer = result.scalars().first()
+    if not customer:
         raise not_found("Customer", id)
-    return Customer(id=row["id"], email=row["email"], name=row["name"])
+    return CustomerSchema(id=customer.id, email=customer.email, name=customer.name)
 
 
 @router.get(
     "/customers/me",
-    response_model=Customer,
+    response_model=CustomerSchema,
     responses={
         401: {"model": ErrorResponse},
     },
 )
-async def get_current_customer(customer_id: int = Depends(get_current_customer_id)) -> Customer:
+async def get_current_customer(
+    customer_id: int = Depends(get_current_customer_id),
+    db: AsyncSession = Depends(get_db),
+) -> CustomerSchema:
     """Get current customer's own profile."""
-    row = await database.fetch_one(
-        "SELECT id, email, name FROM customers WHERE id = :id",
-        values={"id": customer_id},
-    )
-    if not row:
+    result = await db.execute(select(Customer).where(Customer.id == customer_id))
+    customer = result.scalars().first()
+    if not customer:
         raise not_found("Customer", customer_id)
-    return Customer(id=row["id"], email=row["email"], name=row["name"])
+    return CustomerSchema(id=customer.id, email=customer.email, name=customer.name)
 
 
 @router.put(
     "/customers/me",
-    response_model=Customer,
+    response_model=CustomerSchema,
     responses={
         401: {"model": ErrorResponse},
     },
@@ -78,23 +83,20 @@ async def get_current_customer(customer_id: int = Depends(get_current_customer_i
 async def update_current_customer(
     req: CustomerMeUpdate,
     customer_id: int = Depends(get_current_customer_id),
-) -> Customer:
+    db: AsyncSession = Depends(get_db),
+) -> CustomerSchema:
     """Update current customer's profile (name/email only)."""
-    # Fetch current customer
-    current = await database.fetch_one(
-        "SELECT id, email, name FROM customers WHERE id = :id",
-        values={"id": customer_id},
-    )
-    if not current:
+    result = await db.execute(select(Customer).where(Customer.id == customer_id))
+    customer = result.scalars().first()
+    if not customer:
         raise not_found("Customer", customer_id)
 
     # Update fields (null means don't change)
-    email = req.email if req.email is not None else current["email"]
-    name = req.name if req.name is not None else current["name"]
+    if req.email is not None:
+        customer.email = req.email
+    if req.name is not None:
+        customer.name = req.name
 
-    await database.execute(
-        "UPDATE customers SET email = :email, name = :name WHERE id = :id",
-        values={"email": email, "name": name, "id": customer_id},
-    )
+    await db.commit()
 
-    return Customer(id=customer_id, email=email, name=name)
+    return CustomerSchema(id=customer.id, email=customer.email, name=customer.name)

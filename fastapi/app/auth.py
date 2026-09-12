@@ -13,9 +13,11 @@ from datetime import datetime, timedelta
 
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHash, VerifyMismatchError
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from .config import settings
-from .db import database
+from .db import get_session_factory
 
 ph = PasswordHasher()
 
@@ -44,19 +46,21 @@ async def mint_token(customer_id: int | None, token_type: str) -> str:
     Returns:
         opaque token string
     """
+    from .models import OAuthToken
+
     token = secrets.token_urlsafe(32)
     expires_at = datetime.utcnow() + timedelta(seconds=settings.token_expiry_seconds)
 
-    await database.execute(
-        """INSERT INTO oauth_tokens (token, customer_id, token_type, expires_at)
-           VALUES (:token, :customer_id, :token_type, :expires_at)""",
-        values={
-            "token": token,
-            "customer_id": customer_id,
-            "token_type": token_type,
-            "expires_at": expires_at,
-        },
-    )
+    async_session = get_session_factory()
+    async with async_session() as session:
+        oauth_token = OAuthToken(
+            token=token,
+            customer_id=customer_id,
+            token_type=token_type,
+            expires_at=expires_at,
+        )
+        session.add(oauth_token)
+        await session.commit()
 
     return token
 
@@ -67,14 +71,25 @@ async def verify_token(token: str) -> dict | None:
     The metadata is used by dependency functions to identify the actor
     (customer_id for customer tokens, None for admin).
     """
-    row = await database.fetch_one(
-        """SELECT customer_id, token_type, expires_at FROM oauth_tokens
-           WHERE token = :token AND expires_at > :now""",
-        values={"token": token, "now": datetime.utcnow()},
-    )
-    if row:
-        return dict(row)
-    return None
+    from .models import OAuthToken
+
+    async_session = get_session_factory()
+    async with async_session() as session:
+        result = await session.execute(
+            select(OAuthToken).where(
+                (OAuthToken.token == token)
+                & (OAuthToken.expires_at > datetime.utcnow())
+            )
+        )
+        row = result.scalars().first()
+
+        if row:
+            return {
+                "customer_id": row.customer_id,
+                "token_type": row.token_type,
+                "expires_at": row.expires_at,
+            }
+        return None
 
 
 async def verify_customer_bearer_token(token: str) -> int | None:
