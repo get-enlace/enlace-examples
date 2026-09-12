@@ -1,17 +1,9 @@
-"""Cart resource endpoints.
-
-- POST /carts (customer) — create an empty cart
-- GET /carts/{cartId} (customer) — get cart and items
-- POST /carts/{cartId}/items (customer) — add/update item in cart
-- DELETE /carts/{cartId}/items/{productId} (customer) — remove item from cart
-- POST /carts/{cartId}/checkout (customer) — create order + payment from cart
-"""
+"""Cart resource endpoints - synchronous SQLAlchemy ORM."""
 
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, status
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import Session
 
 from ..db import get_db
 from ..dependencies import get_current_customer_id
@@ -35,18 +27,16 @@ router = APIRouter(tags=["carts"])
     "/carts",
     response_model=CartSchema,
     status_code=status.HTTP_201_CREATED,
-    responses={
-        401: {"model": ErrorResponse},
-    },
+    responses={401: {"model": ErrorResponse}},
 )
-async def create_cart(
+def create_cart(
     customer_id: int = Depends(get_current_customer_id),
-    db: AsyncSession = Depends(get_db),
+    db: Session = Depends(get_db),
 ) -> CartSchema:
     """Create an empty cart for the current customer."""
     cart = Cart(customer_id=customer_id, checked_out=False, created_at=datetime.utcnow())
     db.add(cart)
-    await db.flush()  # Get the ID without committing
+    db.flush()
     cart_id = cart.id
 
     return CartSchema(
@@ -65,26 +55,18 @@ async def create_cart(
         404: {"model": ErrorResponse},
     },
 )
-async def get_cart(
+def get_cart(
     cart_id: int,
     customer_id: int = Depends(get_current_customer_id),
-    db: AsyncSession = Depends(get_db),
+    db: Session = Depends(get_db),
 ) -> CartSchema:
     """Get a cart and its items (customer can only see their own)."""
-    result = await db.execute(
-        select(Cart).where(Cart.id == cart_id)
-    )
-    cart = result.scalars().first()
+    cart = db.query(Cart).filter(Cart.id == cart_id).first()
 
     if not cart or cart.customer_id != customer_id:
         raise not_found("Cart", cart_id)
 
-    # Get cart items
-    result = await db.execute(
-        select(CartItem).where(CartItem.cart_id == cart_id)
-    )
-    items_rows = result.scalars().all()
-
+    items_rows = db.query(CartItem).filter(CartItem.cart_id == cart_id).all()
     items = [
         CartItemSchema(productId=r.product_id, quantity=r.quantity)
         for r in items_rows
@@ -107,57 +89,32 @@ async def get_cart(
         404: {"model": ErrorResponse},
     },
 )
-async def add_cart_item(
+def add_cart_item(
     cart_id: int,
     req: CartItemRequest,
     customer_id: int = Depends(get_current_customer_id),
-    db: AsyncSession = Depends(get_db),
+    db: Session = Depends(get_db),
 ) -> CartSchema:
-    """Add or update an item in the cart.
-
-    If the product is already in the cart, increment its quantity.
-    400 if the product doesn't exist.
-    """
-    # Verify cart belongs to customer
-    result = await db.execute(
-        select(Cart).where(Cart.id == cart_id)
-    )
-    cart = result.scalars().first()
-
+    """Add or update an item in the cart."""
+    cart = db.query(Cart).filter(Cart.id == cart_id).first()
     if not cart or cart.customer_id != customer_id:
         raise not_found("Cart", cart_id)
 
-    # Check product exists
-    result = await db.execute(
-        select(Product).where(Product.id == req.product_id)
-    )
-    product = result.scalars().first()
-
+    product = db.query(Product).filter(Product.id == req.product_id).first()
     if not product:
         raise bad_request(f"Product {req.product_id} not found")
 
-    # Upsert cart item
-    result = await db.execute(
-        select(CartItem).where(
-            (CartItem.cart_id == cart_id) & (CartItem.product_id == req.product_id)
-        )
-    )
-    existing = result.scalars().first()
+    existing = db.query(CartItem).filter(
+        (CartItem.cart_id == cart_id) & (CartItem.product_id == req.product_id)
+    ).first()
 
     if existing:
         existing.quantity += req.quantity
     else:
-        cart_item = CartItem(
-            cart_id=cart_id,
-            product_id=req.product_id,
-            quantity=req.quantity,
-        )
-        db.add(cart_item)
+        db.add(CartItem(cart_id=cart_id, product_id=req.product_id, quantity=req.quantity))
 
-    await db.commit()
-
-    # Return updated cart
-    return await get_cart(cart_id, customer_id, db)
+    db.commit()
+    return get_cart(cart_id, customer_id, db)
 
 
 @router.delete(
@@ -168,33 +125,24 @@ async def add_cart_item(
         404: {"model": ErrorResponse},
     },
 )
-async def remove_cart_item(
+def remove_cart_item(
     cart_id: int,
     product_id: int,
     customer_id: int = Depends(get_current_customer_id),
-    db: AsyncSession = Depends(get_db),
+    db: Session = Depends(get_db),
 ) -> None:
     """Remove an item from the cart."""
-    # Verify cart belongs to customer
-    result = await db.execute(
-        select(Cart).where(Cart.id == cart_id)
-    )
-    cart = result.scalars().first()
-
+    cart = db.query(Cart).filter(Cart.id == cart_id).first()
     if not cart or cart.customer_id != customer_id:
         raise not_found("Cart", cart_id)
 
-    # Delete the cart item
-    result = await db.execute(
-        select(CartItem).where(
-            (CartItem.cart_id == cart_id) & (CartItem.product_id == product_id)
-        )
-    )
-    cart_item = result.scalars().first()
+    cart_item = db.query(CartItem).filter(
+        (CartItem.cart_id == cart_id) & (CartItem.product_id == product_id)
+    ).first()
 
     if cart_item:
-        await db.delete(cart_item)
-        await db.commit()
+        db.delete(cart_item)
+        db.commit()
 
 
 @router.post(
@@ -208,48 +156,28 @@ async def remove_cart_item(
         409: {"model": ErrorResponse},
     },
 )
-async def checkout_cart(
+def checkout_cart(
     cart_id: int,
     customer_id: int = Depends(get_current_customer_id),
-    db: AsyncSession = Depends(get_db),
+    db: Session = Depends(get_db),
 ) -> CartCheckoutResponse:
-    """Checkout: create an Order and Payment from cart items.
-
-    Creates the order with computed totals (unitPrice per item, total for order).
-    400 if any product doesn't exist.
-    409 if cart was already checked out.
-    """
-    # Verify cart belongs to customer
-    result = await db.execute(
-        select(Cart).where(Cart.id == cart_id)
-    )
-    cart = result.scalars().first()
-
+    """Checkout: create an Order and Payment from cart items."""
+    cart = db.query(Cart).filter(Cart.id == cart_id).first()
     if not cart or cart.customer_id != customer_id:
         raise not_found("Cart", cart_id)
 
     if cart.checked_out:
         raise conflict("Cart already checked out")
 
-    # Get cart items
-    result = await db.execute(
-        select(CartItem).where(CartItem.cart_id == cart_id)
-    )
-    items_rows = result.scalars().all()
-
+    items_rows = db.query(CartItem).filter(CartItem.cart_id == cart_id).all()
     if not items_rows:
         raise bad_request("Cannot checkout an empty cart")
 
-    # Compute totals (fetch current product prices)
     order_total = 0.0
     order_items_to_insert = []
 
     for item in items_rows:
-        result = await db.execute(
-            select(Product).where(Product.id == item.product_id)
-        )
-        product = result.scalars().first()
-
+        product = db.query(Product).filter(Product.id == item.product_id).first()
         if not product:
             raise bad_request(f"Product {item.product_id} not found")
 
@@ -263,7 +191,6 @@ async def checkout_cart(
             "unit_price": unit_price,
         })
 
-    # Create order
     order = Order(
         customer_id=customer_id,
         cart_id=cart_id,
@@ -272,20 +199,17 @@ async def checkout_cart(
         created_at=datetime.utcnow(),
     )
     db.add(order)
-    await db.flush()  # Get the order ID
+    db.flush()
     order_id = order.id
 
-    # Create order items
     for item in order_items_to_insert:
-        order_item = OrderItem(
+        db.add(OrderItem(
             order_id=order_id,
             product_id=item["product_id"],
             quantity=item["quantity"],
             unit_price=item["unit_price"],
-        )
-        db.add(order_item)
+        ))
 
-    # Create payment
     payment = Payment(
         order_id=order_id,
         amount=order_total,
@@ -293,36 +217,32 @@ async def checkout_cart(
     )
     db.add(payment)
 
-    # Mark cart as checked out
     cart.checked_out = True
+    db.commit()
 
-    await db.commit()
-
-    # Build response
-    order_obj = OrderSchema(
-        id=order_id,
-        customerId=customer_id,
-        cartId=cart_id,
-        status="pending_payment",
-        items=[
-            OrderItemSchema(
-                productId=item["product_id"],
-                quantity=item["quantity"],
-                unitPrice=item["unit_price"],
-            )
-            for item in order_items_to_insert
-        ],
-        total=order_total,
-        createdAt=datetime.utcnow(),
+    return CartCheckoutResponse(
+        order=OrderSchema(
+            id=order_id,
+            customerId=customer_id,
+            cartId=cart_id,
+            status="pending_payment",
+            items=[
+                OrderItemSchema(
+                    productId=item["product_id"],
+                    quantity=item["quantity"],
+                    unitPrice=item["unit_price"],
+                )
+                for item in order_items_to_insert
+            ],
+            total=order_total,
+            createdAt=datetime.utcnow(),
+        ),
+        payment=PaymentSchema(
+            id=payment.id,
+            orderId=order_id,
+            amount=order_total,
+            method=None,
+            status="pending",
+            confirmedAt=None,
+        ),
     )
-
-    payment_obj = PaymentSchema(
-        id=payment.id,
-        orderId=order_id,
-        amount=order_total,
-        method=None,
-        status="pending",
-        confirmedAt=None,
-    )
-
-    return CartCheckoutResponse(order=order_obj, payment=payment_obj)

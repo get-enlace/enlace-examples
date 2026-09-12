@@ -4,7 +4,7 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, status
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import Session
 
 from ..db import get_db
 from ..dependencies import get_current_customer_id
@@ -24,13 +24,13 @@ router = APIRouter(tags=["payments"])
         404: {"model": ErrorResponse},
     },
 )
-async def get_payment(
+def get_payment(
     id: int,
     customer_id: int = Depends(get_current_customer_id),
-    db: AsyncSession = Depends(get_db),
+    db: Session = Depends(get_db),
 ) -> PaymentSchema:
     """Get a payment (customer can only see payments for their own orders)."""
-    result = await db.execute(
+    result = db.execute(
         select(Payment).where(Payment.id == id)
     )
     payment = result.scalars().first()
@@ -39,7 +39,7 @@ async def get_payment(
         raise not_found("Payment", id)
 
     # Check authorization
-    result = await db.execute(
+    result = db.execute(
         select(Order).where(Order.id == payment.order_id)
     )
     order = result.scalars().first()
@@ -66,17 +66,17 @@ async def get_payment(
         409: {"model": ErrorResponse},
     },
 )
-async def confirm_payment(
+def confirm_payment(
     id: int,
     req: PaymentConfirmRequest,
     customer_id: int = Depends(get_current_customer_id),
-    db: AsyncSession = Depends(get_db),
+    db: Session = Depends(get_db),
 ) -> PaymentSchema:
     """Confirm a payment and cascade the order to 'paid'.
 
     400 if the payment is not in 'pending' status.
     """
-    result = await db.execute(
+    result = db.execute(
         select(Payment).where(Payment.id == id)
     )
     payment = result.scalars().first()
@@ -85,7 +85,7 @@ async def confirm_payment(
         raise not_found("Payment", id)
 
     # Check authorization
-    result = await db.execute(
+    result = db.execute(
         select(Order).where(Order.id == payment.order_id)
     )
     order = result.scalars().first()
@@ -105,7 +105,7 @@ async def confirm_payment(
     # Cascade order to 'paid'
     order.status = "paid"
 
-    await db.commit()
+    db.commit()
 
     return PaymentSchema(
         id=payment.id,

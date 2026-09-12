@@ -4,7 +4,7 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, status
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import Session
 
 from ..db import get_db
 from ..dependencies import get_current_carrier_key
@@ -23,12 +23,12 @@ router = APIRouter(tags=["shipments"])
         404: {"model": ErrorResponse},
     },
 )
-async def get_shipment(
+def get_shipment(
     tracking_number: str,
-    db: AsyncSession = Depends(get_db),
+    db: Session = Depends(get_db),
 ) -> ShipmentSchema:
     """Get a shipment by tracking number (public — tracking number is the secret)."""
-    result = await db.execute(
+    result = db.execute(
         select(Shipment).where(Shipment.tracking_number == tracking_number)
     )
     shipment = result.scalars().first()
@@ -55,18 +55,18 @@ async def get_shipment(
         409: {"model": ErrorResponse},
     },
 )
-async def update_shipment_status(
+def update_shipment_status(
     tracking_number: str,
     req: ShipmentStatusRequest,
     _carrier_key: str = Depends(get_current_carrier_key),
-    db: AsyncSession = Depends(get_db),
+    db: Session = Depends(get_db),
 ) -> ShipmentSchema:
     """Update a shipment's status (carrier API key only).
 
     Only accepts 'delivered' as a new status (from 'in_transit').
     Cascades the parent order to 'delivered'.
     """
-    result = await db.execute(
+    result = db.execute(
         select(Shipment).where(Shipment.tracking_number == tracking_number)
     )
     shipment = result.scalars().first()
@@ -84,14 +84,14 @@ async def update_shipment_status(
     shipment.status = req.status
 
     # Cascade order to 'delivered'
-    result = await db.execute(
+    result = db.execute(
         select(Order).where(Order.id == shipment.order_id)
     )
     order = result.scalars().first()
     if order:
         order.status = "delivered"
 
-    await db.commit()
+    db.commit()
 
     return ShipmentSchema(
         id=shipment.id,

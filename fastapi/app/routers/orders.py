@@ -6,7 +6,7 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, status
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import Session
 
 from ..db import get_db
 from ..dependencies import get_current_admin_id, get_current_customer_id, get_customer_or_admin
@@ -18,11 +18,11 @@ from ..schemas import OrderItem, Shipment as ShipmentSchema
 router = APIRouter(tags=["orders"])
 
 
-async def _fetch_order_with_items(
-    order: Order, db: AsyncSession
+def _fetch_order_with_items(
+    order: Order, db: Session
 ) -> OrderSchema:
     """Helper to fetch an order with its items."""
-    result = await db.execute(
+    result = db.execute(
         select(OrderItemModel).where(OrderItemModel.order_id == order.id)
     )
     items_rows = result.scalars().all()
@@ -54,9 +54,9 @@ async def _fetch_order_with_items(
         401: {"model": ErrorResponse},
     },
 )
-async def list_orders(
+def list_orders(
     actor: dict = Depends(get_customer_or_admin),
-    db: AsyncSession = Depends(get_db),
+    db: Session = Depends(get_db),
 ) -> list[OrderSchema]:
     """List orders.
 
@@ -64,17 +64,17 @@ async def list_orders(
     Admin credential: sees all orders.
     """
     if actor["type"] == "customer":
-        result = await db.execute(
+        result = db.execute(
             select(Order).where(Order.customer_id == actor["id"]).order_by(Order.id)
         )
     else:
-        result = await db.execute(select(Order).order_by(Order.id))
+        result = db.execute(select(Order).order_by(Order.id))
 
     orders_rows = result.scalars().all()
 
     orders = []
     for order in orders_rows:
-        order_schema = await _fetch_order_with_items(order, db)
+        order_schema = _fetch_order_with_items(order, db)
         orders.append(order_schema)
 
     return orders
@@ -88,17 +88,17 @@ async def list_orders(
         404: {"model": ErrorResponse},
     },
 )
-async def get_order(
+def get_order(
     id: int,
     actor: dict = Depends(get_customer_or_admin),
-    db: AsyncSession = Depends(get_db),
+    db: Session = Depends(get_db),
 ) -> OrderSchema:
     """Get an order.
 
     Customer credential: can only see their own (404 if not theirs).
     Admin credential: can see any.
     """
-    result = await db.execute(select(Order).where(Order.id == id))
+    result = db.execute(select(Order).where(Order.id == id))
     order = result.scalars().first()
 
     if not order:
@@ -108,7 +108,7 @@ async def get_order(
     if actor["type"] == "customer" and order.customer_id != actor["id"]:
         raise not_found("Order", id)
 
-    return await _fetch_order_with_items(order, db)
+    return _fetch_order_with_items(order, db)
 
 
 @router.post(
@@ -120,16 +120,16 @@ async def get_order(
         409: {"model": ErrorResponse},
     },
 )
-async def cancel_order(
+def cancel_order(
     id: int,
     customer_id: int = Depends(get_current_customer_id),
-    db: AsyncSession = Depends(get_db),
+    db: Session = Depends(get_db),
 ) -> OrderSchema:
     """Cancel an order (customer only).
 
     Only works if order status is 'pending_payment'. Cascades order to 'cancelled'.
     """
-    result = await db.execute(select(Order).where(Order.id == id))
+    result = db.execute(select(Order).where(Order.id == id))
     order = result.scalars().first()
 
     if not order or order.customer_id != customer_id:
@@ -140,10 +140,10 @@ async def cancel_order(
 
     # Cascade order to 'cancelled'
     order.status = "cancelled"
-    await db.commit()
+    db.commit()
 
     # Return updated order
-    return await get_order(id, {"type": "customer", "id": customer_id}, db)
+    return get_order(id, {"type": "customer", "id": customer_id}, db)
 
 
 @router.post(
@@ -157,17 +157,17 @@ async def cancel_order(
         409: {"model": ErrorResponse},
     },
 )
-async def fulfill_order(
+def fulfill_order(
     id: int,
     _admin: bool = Depends(get_current_admin_id),
-    db: AsyncSession = Depends(get_db),
+    db: Session = Depends(get_db),
 ) -> ShipmentSchema:
     """Fulfill an order and create a shipment (admin only).
 
     Only works if order status is 'paid'.
     Creates a shipment with a generated tracking number and cascades order to 'shipped'.
     """
-    result = await db.execute(select(Order).where(Order.id == id))
+    result = db.execute(select(Order).where(Order.id == id))
     order = result.scalars().first()
 
     if not order:
@@ -192,8 +192,8 @@ async def fulfill_order(
     # Cascade order to 'shipped'
     order.status = "shipped"
 
-    await db.commit()
-    await db.refresh(shipment)
+    db.commit()
+    db.refresh(shipment)
 
     return ShipmentSchema(
         id=shipment.id,
