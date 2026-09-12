@@ -42,3 +42,7 @@ to see the resolved OpenAPI doc directly. `/swagger-ui.html` (springdoc's own UI
 [`CONTRACT.md`](../CONTRACT.md#reference-demo-chain) for a chain to try on the canvas — it
 works unmodified against [`aspnetcore`](../aspnetcore), [`express`](../express), or
 [`nest`](../nest) too, since all four implement the exact same contract.
+
+## Authentication & Full Contract
+
+This example implements the basic CRUD contract (Customers, Products, Orders). For the **complete reference implementation** with full authentication (Customer JWT, Admin JWT, Carrier API Key) and the multi-step cascade workflow, see the [FastAPI example](../fastapi) (`../fastapi/README.md`) — it includes the OAuth2 token endpoint and credential setup required for the full 8-step chain demonstrated in [TESTING.md](../TESTING.md).

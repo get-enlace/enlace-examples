@@ -37,3 +37,7 @@ canvas — it works unmodified against this example, [`nest`](../nest), or
 next `npm install` (or `rm -rf node_modules package-lock.json && npm install`, since `npm ci`
 would otherwise reinstall whatever the lockfile already resolved) always picks up whatever's
 newest.
+
+## Authentication & Full Contract
+
+This example implements the basic CRUD contract (Customers, Products, Orders). For the **complete reference implementation** with full authentication (Customer JWT, Admin JWT, Carrier API Key) and the multi-step cascade workflow, see the [FastAPI example](../fastapi) (`../fastapi/README.md`) — it includes the OAuth2 token endpoint and credential setup required for the full 8-step chain demonstrated in [TESTING.md](../TESTING.md).
