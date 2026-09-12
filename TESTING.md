@@ -1,6 +1,8 @@
 # Testing the Enlace Examples Canvas Chain
 
-**Live Demo:** https://enlace-fastapi.onrender.com/enlace/
+**Live Demo:** https://enlace-fastapi.onrender.com/enlace/ (FastAPI example on Render)
+
+**Note:** This guide uses the FastAPI reference implementation, which includes full authentication (three security schemes: Customer JWT, Admin JWT, Carrier API Key). The other language examples (Express, Nest, ASP.NET Core, Java) currently implement only the basic CRUD contract and lack the auth layer — they're suitable for chaining basic operations but not the full 8-step workflow described here.
 
 This guide walks through the complete 8-step reference chain that demonstrates Enlace's core capabilities:
 - Multi-step chaining with data mapping
