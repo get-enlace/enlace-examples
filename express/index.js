@@ -15,9 +15,13 @@ const spec = swaggerJsdoc({
   definition: {
     openapi: '3.0.3',
     info: { title: 'Enlace Example API (Express)', version: '1.0.0' },
-    // Enlace's chain executor reads servers[0].url to know where to send
-    // the actual HTTP requests — see ARCHITECTURE.md §3/§6.
-    servers: [{ url: `http://localhost:${port}` }],
+    // No `servers` entry on purpose — Enlace UI resolves the request base
+    // URL against wherever the spec document itself was fetched from
+    // (enlace-ui's resolveBaseUrl, per the OpenAPI Server Object's own
+    // default of `/` when `servers` is omitted), so this works unmodified
+    // on any deployment (localhost, Render, etc). An earlier hardcoded
+    // `servers=[{"url": "http://localhost:4000"}]` here was a workaround
+    // for a real gap in enlace-ui, since fixed there.
     components: {
       schemas: {
         Customer: {
