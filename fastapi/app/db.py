@@ -28,6 +28,7 @@ def get_engine():
             settings.database_url,
             echo=False,  # Set to True to see SQL queries
             future=True,
+            connect_args={"ssl": "require"},  # For Render's PostgreSQL
         )
     return _engine
 
