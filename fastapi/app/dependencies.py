@@ -6,7 +6,7 @@ available credentials.
 """
 
 from fastapi import Depends, Header
-from fastapi.security import APIKeyHeader, HTTPBearer
+from fastapi.security import APIKeyHeader, HTTPBearer, HTTPAuthorizationCredentials
 
 from .auth import verify_admin_bearer_token, verify_carrier_api_key, verify_customer_bearer_token
 from .errors import forbidden, unauthorized
@@ -30,27 +30,29 @@ carrier_api_key = APIKeyHeader(
 )
 
 
-async def get_current_customer_id(token: str = Depends(customer_oauth)) -> int:
+async def get_current_customer_id(credentials: HTTPAuthorizationCredentials = Depends(customer_oauth)) -> int:
     """Verify customer bearer token from Authorization header.
 
     Raises 401 if missing or invalid, 403 if it's an admin token.
 
     FastAPI automatically adds this as a distinct credential in the OpenAPI spec.
+    HTTPBearer returns HTTPAuthorizationCredentials with a .credentials attribute.
     """
-    customer_id = await verify_customer_bearer_token(token)
+    customer_id = await verify_customer_bearer_token(credentials.credentials)
     if customer_id is None:
         raise unauthorized("Invalid or expired customer token")
     return customer_id
 
 
-async def get_current_admin_id(token: str = Depends(admin_oauth)) -> bool:
+async def get_current_admin_id(credentials: HTTPAuthorizationCredentials = Depends(admin_oauth)) -> bool:
     """Verify admin bearer token from Authorization header.
 
     Raises 401 if missing or invalid, 403 if it's a customer token.
 
     FastAPI automatically adds this as a distinct credential in the OpenAPI spec.
+    HTTPBearer returns HTTPAuthorizationCredentials with a .credentials attribute.
     """
-    is_admin = await verify_admin_bearer_token(token)
+    is_admin = await verify_admin_bearer_token(credentials.credentials)
     if not is_admin:
         raise forbidden("Admin credentials required")
     return True
