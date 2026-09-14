@@ -217,8 +217,8 @@ On the canvas, create these operations in order. Data flows left-to-right or top
 - Response field: `trackingNumber` (the shipment tracking number)
 
 **Result:**
+- Shipment created with status `in_transit`
 - Order status cascades from `paid` → `shipped`
-- Shipment created with this tracking number
 
 ### Step 7: Update Shipment Status (Carrier Auth) ⭐ **Second Credential Switch**
 
