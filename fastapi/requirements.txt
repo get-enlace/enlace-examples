@@ -14,5 +14,5 @@ psycopg2-binary>=2.9.0
 argon2-cffi>=23.0.0
 python-multipart>=0.0.6
 
-# Enlace adapter (latest dev build from test.pypi)
-enlace-fastapi
+# Enlace adapter (latest dev build from test.pypi, cached locally)
+enlace-fastapi>=0.0.1.dev0
