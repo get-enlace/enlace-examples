@@ -199,6 +199,7 @@ On the canvas, create these operations in order. Data flows left-to-right or top
   ```
 
 **Result:**
+- Payment status: `pending` → `succeeded`
 - Order status cascades from `pending_payment` → `paid`
 
 ### Step 6: Fulfill Order (Admin Auth) ⭐ **First Credential Switch**
