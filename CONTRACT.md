@@ -55,7 +55,7 @@ kind of bearer token it got, not just whether one was present.
 
 One endpoint, both grants, dispatched on the `grant_type` form field — `Content-Type:
 application/x-www-form-urlencoded` request, JSON response. This is the exact contract
-`enlace-ui`'s credential engine expects (`packages/core/src/engine/credentials.ts`), since it
+`enlace`'s credential engine expects (`packages/core/src/engine/credentials.ts`), since it
 calls this URL itself, generically, whenever a node uses an `oauth2_password` or
 `oauth2_clientCredentials` credential.
 

@@ -17,11 +17,11 @@ const spec = swaggerJsdoc({
     info: { title: 'Enlace Example API (Express)', version: '1.0.0' },
     // No `servers` entry on purpose — Enlace UI resolves the request base
     // URL against wherever the spec document itself was fetched from
-    // (enlace-ui's resolveBaseUrl, per the OpenAPI Server Object's own
+    // (enlace's resolveBaseUrl, per the OpenAPI Server Object's own
     // default of `/` when `servers` is omitted), so this works unmodified
     // on any deployment (localhost, Render, etc). An earlier hardcoded
     // `servers=[{"url": "http://localhost:4000"}]` here was a workaround
-    // for a real gap in enlace-ui, since fixed there.
+    // for a real gap in enlace, since fixed there.
     components: {
       schemas: {
         Customer: {

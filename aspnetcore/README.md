@@ -38,8 +38,8 @@ changes:
 
 ```bash
 # 1. build the real @get-enlace/ui bundle and sync it into enlace-dotnet's wwwroot-embedded
-(cd ../../enlace-ui && npm run build)
-../../enlace-dotnet/scripts/dev-sync-ui.sh ../../enlace-ui
+(cd ../../enlace && npm run build)
+../../enlace-dotnet/scripts/dev-sync-ui.sh ../../enlace
 
 # 2. bump <Version> in ../../enlace-dotnet/src/Enlace.AspNetCore/Enlace.AspNetCore.csproj
 #    (NuGet caches by version — packing the same version again won't refresh a restore

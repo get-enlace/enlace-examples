@@ -17,11 +17,11 @@ async function bootstrap() {
     .setVersion('1.0.0')
     // No .addServer() call on purpose — Enlace UI resolves the request base
     // URL against wherever the spec document itself was fetched from
-    // (enlace-ui's resolveBaseUrl, per the OpenAPI Server Object's own
+    // (enlace's resolveBaseUrl, per the OpenAPI Server Object's own
     // default of `/` when `servers` is omitted), so this works unmodified
     // on localhost or wherever this app is actually deployed. A hardcoded
     // `http://localhost:${port}` here would only be correct on localhost —
-    // see ARCHITECTURE.md §3/§6, and enlace-ui's git history for the fix
+    // see ARCHITECTURE.md §3/§6, and enlace's git history for the fix
     // that made this unnecessary.
     .build();
 

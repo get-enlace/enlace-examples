@@ -16,7 +16,7 @@ repo (`~/.m2`) instead, which you populate by building `enlace-java` yourself fi
 # 1. (optional but recommended) sync a real @get-enlace/ui bundle into enlace-java, so
 #    the canvas actually renders instead of just the API — without this step the app
 #    still runs and /enlace/api/spec still resolves, but /enlace itself 404s.
-(cd ../../enlace-java && ./scripts/dev-sync-ui.sh ../enlace-ui)
+(cd ../../enlace-java && ./scripts/dev-sync-ui.sh ../enlace)
 
 # 2. build and install enlace-java into your local Maven repo — this example's pom.xml
 #    depends on io.github.get-enlace:enlace-spring-boot-starter:0.0.1-SNAPSHOT, which only
@@ -26,7 +26,7 @@ repo (`~/.m2`) instead, which you populate by building `enlace-java` yourself fi
 
 ## Picking up a newer local build
 
-Whenever `enlace-java` changes, repeat step 2 above (and step 1 too, if `enlace-ui` also
+Whenever `enlace-java` changes, repeat step 2 above (and step 1 too, if `enlace` also
 changed) and restart this app — Maven resolves `0.0.1-SNAPSHOT` from whatever's currently in
 your local repo, no version bump needed for a SNAPSHOT.
 

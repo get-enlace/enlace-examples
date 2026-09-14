@@ -10,11 +10,11 @@ FastAPI reference implementation, deployed as a **single instance** that stays s
 
 This ensures:
 - Always using latest `enlace-fastapi` adapter
-- Adapter always matches latest `enlace-ui` (because adapter auto-updates on UI changes)
+- Adapter always matches latest `enlace` (because adapter auto-updates on UI changes)
 - No manual version management
 
 ```
-enlace-ui deploys
+enlace deploys
   ↓ triggers
 enlace-python adapter redeploy
   ↓ triggers (repository_dispatch)
@@ -210,9 +210,9 @@ See `fastapi/README.md` for all available env vars.
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│  enlace-ui change                                       │
+│  enlace change                                          │
 │  ↓                                                      │
-│  enlace-ui auto-deploys                                │
+│  enlace auto-deploys                                   │
 │  ↓                                                      │
 │  enlace-python detects @get-enlace/ui update          │
 │  ↓                                                      │
