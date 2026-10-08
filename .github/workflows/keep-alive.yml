@@ -1,0 +1,13 @@
+name: Keep Alive
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch product list from hosted FastAPI example
+        run: curl -fsS --retry 3 --max-time 60 https://enlace-fastapi.onrender.com/products
